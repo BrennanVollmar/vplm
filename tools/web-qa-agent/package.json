@@ -1,0 +1,34 @@
+{
+    "name":  "web-qa-agent",
+    "version":  "1.0.0",
+    "description":  "",
+    "main":  "index.js",
+    "directories":  {
+                        "test":  "tests"
+                    },
+    "scripts":  {
+                    "qa":  "npm run test \u0026\u0026 npm run lh \u0026\u0026 npm run links \u0026\u0026 npm run report \u0026\u0026 npm run verify",
+                    "links":  "node scripts/links.mjs",
+                    "report":  "node scripts/report.mjs",
+                    "verify":  "node scripts/verify.mjs",
+                    "lh":  "node scripts/lighthouse.mjs",
+                    "test":  "playwright test"
+                },
+    "keywords":  [
+
+                 ],
+    "author":  "",
+    "license":  "ISC",
+    "type":  "module",
+    "devDependencies":  {
+                            "@axe-core/playwright":  "^4.10.2",
+                            "@playwright/test":  "^1.55.0",
+                            "chrome-launcher":  "^1.2.0",
+                            "dayjs":  "^1.11.18",
+                            "lighthouse":  "^12.8.2",
+                            "linkinator":  "^6.1.4",
+                            "playwright":  "^1.55.0",
+                            "pretty-bytes":  "^7.0.1",
+                            "sitemap":  "^8.0.0"
+                        }
+}

@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: vplm-mcp
+    runtime: node
+    rootDir: mcp
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    plan: free
+    healthCheckPath: /
+    envVars: []
+

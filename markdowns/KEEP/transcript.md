@@ -1,0 +1,45 @@
+## 2025-09-11 - Fresh Session Start
+
+This is a fresh session. Previous transcript archived as `session-2025-09-10.md`.
+Going forward, each session is logged as `session-YYYY-MM-DD.md` in this folder.
+The latest session is always mirrored here in `transcript.md`.
+
+## 2025-09-11 - Session Guardrails
+
+- Keep dev server running (http://localhost:5173); only restart to prevent a crash; write startup logs to markdowns/KEEP/vite-dev.*.log.
+- Make minimal, focused code changes; follow existing style; avoid unrelated fixes.
+- QA agent/tests must block external network (same-origin only) to avoid unintended API calls.
+- Avoid destructive actions (data deletion, resets, secrets) unless explicitly requested.
+- Use concise preambles and maintain an up-to-date plan for multi-step work; post brief progress updates.
+- Log key decisions and outcomes in today's session file.
+
+## 2025-09-11 - Follow-ups + Polishing
+
+- Bug: capture first console line when clicking a client name; add defensive guards around job links and IDs.
+- Water Quality: add CSV export from job-level table; include date, site, params.
+- Tools Logs: aggregate tool actions into a simple `/tools/logs` view with filters.
+- Map: refine clustering at low zooms; add "zoom to cluster bounds" and optional spiderfy-on-click.
+- QA: extend web-qa to cover Tools routes and CSV export; assert report presence.
+- Dev Runner: allow port override, readiness timeout, and keep-alive toggle.
+- Docs: update Help with Tools links + keyboard shortcuts.
+- Notes: added voice dictation (Web Speech API) and Voice Memos with recording + one-click OpenAI Whisper transcription; transcripts appear in Job Summary.
+- Settings: added OpenAI API key input (stored locally) to enable transcription.
+- Map & GPS: fixed grey/interaction by invalidating size when shown; added scale bar auto-updating with zoom; added perimeter; enabled depth points (click to add ft) saved per job and shown in Summary.
+- Map & GPS: depth labels visible on-map; avg depth auto-calculated for points inside outline; added compass; single feet-only scale.
+- Map & GPS: OSM underlay + fade-in aerial imagery to avoid white viewport; print-ready PDF button (focuses map on print).
+- Map & GPS: larger map and first-time centering on current GPS pin (zoom 17).
+- Map & GPS: added map type toggle (Aerial/Street) with immediate switch.
+- Mapping: removed old Map & GPS and rebuilt a fresh, reliable Ponds & Mapping panel with:
+  - Street/Aerial toggle with scale + zoom
+  - Multi-pond tracing (dashed in-progress + filled polygon)
+  - Save ponds with names, rendered on map + summary table (acres, perimeter, avg depth)
+  - Depth points (inside pond only) with labels, list + delete; per-pond averages
+  - Misc points anywhere (named + note), list + delete
+  - Proper size invalidation when accordion opens; viewport fits content
+
+## 2025-09-11 - Memory Update
+
+- Shorthand: when I say "update memory" I mean update the transcript (this file and today’s session file).
+- Replaced legacy Map & GPS with a new Ponds & Mapping panel (multi-pond tracing, depth + misc points, per-pond metrics, zoom/delete).
+- DB: added miscPoints store (add/list/delete) alongside ponds and depthPoints.
+- Fixes: added missing depthMode state; ensured map invalidates size when accordion opens to avoid blank view.

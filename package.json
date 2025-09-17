@@ -1,0 +1,15 @@
+{
+  "name": "vplm-root",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix apps/vplm-portal run dev",
+    "build": "npm --prefix apps/vplm-portal run build",
+    "preview": "npm --prefix apps/vplm-portal run preview",
+    "test": "npm --prefix apps/vplm-portal run test",
+    "mcp:dev": "npm --prefix mcp run dev",
+    "mcp:start": "npm --prefix mcp run start"
+  },
+  "workspaces": [
+    "apps/*"
+  ]
+}
