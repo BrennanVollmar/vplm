@@ -1,0 +1,33 @@
+﻿name: Web QA Agent
+
+on:
+  pull_request:
+    paths:
+      - "tools/web-qa-agent/**"
+      - ".github/workflows/web-qa.yml"
+  schedule:
+    - cron: "0 7 * * *"
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install deps
+        run: |
+          cd tools/web-qa-agent
+          npm ci
+          npx playwright install --with-deps
+      - name: Run QA
+        run: |
+          cd tools/web-qa-agent
+          npm run qa
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-qa-report
+          path: tools/web-qa-agent/out
+

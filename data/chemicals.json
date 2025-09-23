@@ -1,0 +1,25 @@
+[
+  {
+    "id": "cuso4_crystals",
+    "brand": "Copper Sulfate",
+    "active": "metallic copper",
+    "form": "crystal",
+    "strength": "",
+    "labelNotes": "Do not exceed label max; min retreatment interval 7 days",
+    "doseRules": [
+      { "target": "algae", "basis": "acre-foot", "minRate": 2.72, "maxRate": 5.44, "unit": "lbs/ac-ft" }
+    ]
+  },
+  {
+    "id": "seclear",
+    "brand": "SeClear",
+    "active": "copper chelate",
+    "form": "liquid",
+    "strength": "",
+    "labelNotes": "Max annual per label",
+    "doseRules": [
+      { "target": "algae", "basis": "acre-foot", "minRate": 0.5, "maxRate": 1, "unit": "ppm" }
+    ]
+  }
+]
+
