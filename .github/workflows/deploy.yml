@@ -24,17 +24,18 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: |
-            package-lock.json
-            apps/vplm-portal/package-lock.json
 
-      - name: Install deps (vplm-portal)
+      # Install & build inside the correct subfolder
+      - name: Install deps
+        working-directory: apps/vplm-portal
         run: |
-          npm --prefix apps/vplm-portal ci || npm --prefix apps/vplm-portal install
+          npm ci || npm install
 
-      - name: Build (vplm-portal)
-        run: npm --prefix apps/vplm-portal run build
+      - name: Build
+        working-directory: apps/vplm-portal
+        run: npm run build
 
+      # Ensure the custom domain is bundled with the artifact
       - name: Add CNAME
         run: echo "www.lakemanagementservice.com" > apps/vplm-portal/dist/CNAME
 
