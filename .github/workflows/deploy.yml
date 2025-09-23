@@ -19,20 +19,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      # install root deps if you have any (optional)
-      - run: npm ci || true
-      # install + build the app in apps/vplm-portal
-      - run: npm ci
-        working-directory: apps/vplm-portal
-      - run: npm run build
-        working-directory: apps/vplm-portal
-      # upload the RIGHT dist folder
-      - uses: actions/upload-pages-artifact@v3
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            apps/vplm-portal/package-lock.json
+
+      - name: Install deps (vplm-portal)
+        run: |
+          npm --prefix apps/vplm-portal ci || npm --prefix apps/vplm-portal install
+
+      - name: Build (vplm-portal)
+        run: npm --prefix apps/vplm-portal run build
+
+      - name: Add CNAME
+        run: echo "www.lakemanagementservice.com" > apps/vplm-portal/dist/CNAME
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
         with:
           path: apps/vplm-portal/dist
+
   deploy:
     needs: build
     runs-on: ubuntu-latest
