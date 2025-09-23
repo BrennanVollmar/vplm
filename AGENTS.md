@@ -27,4 +27,4 @@ Scope: Entire repository. These rules guide the coding agent’s behavior when w
 - Use local storage or environment variables as appropriate.
 
 7) Start server trigger
-- When the user says "start server", start the site by running `npm run dev` from the repository root (which proxies to `apps/vplm-portal`). Confirm it is reachable on `http://localhost:5173`.
+- When the user says "start server", start the site by running `npm run dev` from the repository root (which proxies to `apps/vplm-portal`). Confirm it is reachable on `https://localhost:5173`.

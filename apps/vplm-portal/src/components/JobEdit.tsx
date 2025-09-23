@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { db, logJob, updateJob } from '../features/offline/db'
+import AddressAutocomplete from './AddressAutocomplete'
+import type { AddressSuggestion } from '../lib/places'
 
 export default function JobEdit({ jobId }: { jobId: string }) {
   const [clientName, setClientName] = useState('')
@@ -23,6 +25,12 @@ export default function JobEdit({ jobId }: { jobId: string }) {
       }
     })()
   }, [jobId])
+
+  function onAddressSelect(suggestion: AddressSuggestion) {
+    setAddress(suggestion.label)
+    if (suggestion.lat != null) setLat(suggestion.lat)
+    if (suggestion.lon != null) setLon(suggestion.lon)
+  }
 
   async function save() {
     setBusy(true)
@@ -61,9 +69,16 @@ export default function JobEdit({ jobId }: { jobId: string }) {
         <label className="label">Site Name
           <input className="input" value={siteName} onChange={(e) => setSiteName(e.target.value)} />
         </label>
-        <label className="label">Address
-          <input className="input" value={address} onChange={(e) => setAddress(e.target.value)} />
-        </label>
+        <div className="label" style={{ flex: '1 1 300px' }}>
+          <AddressAutocomplete
+            id="job-edit-address"
+            label="Address"
+            value={address}
+            onChange={setAddress}
+            onSelect={onAddressSelect}
+            placeholder="Start typing an address"
+          />
+        </div>
         <label className="label">Created By
           <input className="input" value={createdBy} onChange={(e) => setCreatedBy(e.target.value)} />
         </label>
@@ -78,9 +93,8 @@ export default function JobEdit({ jobId }: { jobId: string }) {
         <button className="btn secondary" disabled={busy} onClick={useCurrentLocation}>Use Current Location</button>
       </div>
       <div className="row">
-        <button className="btn" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save Changes'}</button>
+        <button className="btn" disabled={busy} onClick={save}>{busy ? 'Saving...' : 'Save Changes'}</button>
       </div>
     </div>
   )
 }
-

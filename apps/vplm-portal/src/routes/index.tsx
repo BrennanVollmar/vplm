@@ -4,6 +4,7 @@ import JobForm from '../components/JobForm'
 import { useEffect, useMemo, useState } from 'react'
 import { db } from '../features/offline/db'
 import Accordion from '../components/Accordion'
+import FishRunForm from '../components/FishRunForm'
 
 export default function Dashboard() {
   const navigate = useNavigate()
@@ -24,7 +25,22 @@ export default function Dashboard() {
     <div className="grid">
       <Accordion
         items={[
-          { label: 'New Job', accent: 'green', startOpen: true, content: <div className="card"><JobForm onCreated={(id) => navigate(`/job/${id}`)} /></div> },
+          { label: 'New Job', accent: 'green', startOpen: true, content: (
+            <div className="card" style={{ background: 'linear-gradient(180deg, var(--brand-50), #fff)' }}>
+              <div style={{ marginBottom: 8, color: 'var(--muted)' }}>
+                Create a new job by entering the client and site details. Location can be captured on site.
+              </div>
+              <JobForm onCreated={(id) => navigate(`/job/${id}`)} />
+            </div>
+          ) },
+          { label: 'New Fish Run', accent: 'cyan', content: (
+            <div className="card" style={{ background: 'linear-gradient(180deg, #ecfeff, #fff)' }}>
+              <div style={{ marginBottom: 8, color: 'var(--muted)' }}>
+                Plan multi-stop fish runs with stops, species, counts/weights, and per-stop notes.
+              </div>
+              <FishRunForm />
+            </div>
+          ) },
           { label: 'Recent Jobs', accent: 'amber', content: (
             <div className="card">
               <div className="row" style={{ marginBottom: 8 }}>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { addTask, getTasks, toggleTask, type JobTask, logJob, getActor } from '../features/offline/db'
+import { addTask, getTasks, toggleTask, deleteTask, type JobTask, logJob, getActor } from '../features/offline/db'
 
 export default function TaskList({ jobId }: { jobId: string }) {
   const [items, setItems] = useState<JobTask[]>([])
@@ -31,14 +31,17 @@ export default function TaskList({ jobId }: { jobId: string }) {
       </div>
       {items.length === 0 ? <div className="muted">No tasks yet</div> : (
         <ul className="list">
-          {items.sort((a,b)=>a.createdAt.localeCompare(b.createdAt)).map((t) => (
-            <li key={t.id}>
-              <label className="row" style={{ gap: 8 }}>
-                <input type="checkbox" checked={t.done} onChange={(e) => toggle(t.id, e.target.checked)} />
-                <span style={{ textDecoration: t.done ? 'line-through' : 'none' }}>{t.label}</span>
-              </label>
-            </li>
-          ))}
+            {items.sort((a,b)=>a.createdAt.localeCompare(b.createdAt)).map((t) => (
+              <li key={t.id}>
+                <div className="row" style={{ gap: 8, justifyContent: 'space-between' }}>
+                  <label className="row" style={{ gap: 8 }}>
+                    <input type="checkbox" checked={t.done} onChange={(e) => toggle(t.id, e.target.checked)} />
+                    <span style={{ textDecoration: t.done ? 'line-through' : 'none' }}>{t.label}</span>
+                  </label>
+                  <button className="btn warn" onClick={async () => { if (!confirm('Really delete this task?')) return; await deleteTask(t.id); await logJob(jobId, 'task_delete', 'Deleted a task', getActor()); setItems(await getTasks(jobId)) }}>Delete</button>
+                </div>
+              </li>
+            ))}
         </ul>
       )}
     </div>

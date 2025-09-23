@@ -25,17 +25,18 @@ function Accord({ base, index, item }: { base: string; index: number; item: Acco
   const btnId = `${base}-btn-${index}`
   const accent = item.accent ? `accent-${item.accent}` : 'accent-green'
   const panelRef = useRef<HTMLDivElement | null>(null)
+  const sectionRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
     if (open) {
       const el = panelRef.current
-      // Defer to next frame so layout is updated
       requestAnimationFrame(() => {
         try { el?.dispatchEvent(new CustomEvent('accordion:open', { bubbles: true })) } catch {}
+        try { sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' }) } catch {}
       })
     }
   }, [open])
   return (
-    <section className={`accordion-item ${accent}`}>
+    <section ref={sectionRef} className={`accordion-item ${accent}`}>
       <button
         id={btnId}
         className="accordion-button"

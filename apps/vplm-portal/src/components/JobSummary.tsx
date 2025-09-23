@@ -28,6 +28,7 @@ export default function JobSummary({ jobId }: { jobId: string }) {
       <div className="row">
         <button className="btn" onClick={printSummary}>Print / Save as PDF</button>
       </div>
+      <div id="printable-map">
       <section className="card">
         <h3>Job</h3>
         <div>{data.job?.clientName} {data.job?.siteName ? ' - ' + data.job.siteName : ''}</div>
@@ -90,6 +91,7 @@ export default function JobSummary({ jobId }: { jobId: string }) {
           <div className="row">{data.photos.map((p: any) => <img key={p.id} className="rounded" src={p.serverUri || (p.blob ? URL.createObjectURL(p.blob) : p.localUri)} alt="photo" style={{ width: 120, height: 120, objectFit: 'cover' }} />)}</div>
         ) : <div className="muted">No photos</div>}
       </section>
+      </div>
     </div>
   )
 }

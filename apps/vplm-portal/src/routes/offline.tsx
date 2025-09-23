@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { db } from '../features/offline/db'
 import { generateExport } from '../utils/exportData'
 import { importFromFile } from '../utils/importData'
+import { Link } from 'react-router-dom'
+import { listFishRuns } from '../features/offline/db'
 
 export default function OfflinePage() {
   const [counts, setCounts] = useState<{ [k: string]: number }>({})
@@ -9,13 +11,17 @@ export default function OfflinePage() {
   const [includeMedia, setIncludeMedia] = useState(true)
   const [importing, setImporting] = useState(false)
   const [file, setFile] = useState<File | null>(null)
+  const [jobs, setJobs] = useState<any[]>([])
+  const [runs, setRuns] = useState<any[]>([])
 
   useEffect(() => {
     const load = async () => {
-      const [jobs, notes, photos, measurements, outbox] = await Promise.all([
-        db.jobs.count(), db.notes.count(), db.photos.count(), db.measurements.count(), db.outbox.count()
+      const [jobsCount, notes, photos, measurements, outbox, jobsList, runList] = await Promise.all([
+        db.jobs.count(), db.notes.count(), db.photos.count(), db.measurements.count(), db.outbox.count(), db.jobs.orderBy('createdAt').reverse().toArray(), listFishRuns()
       ])
-      setCounts({ jobs, notes, photos, measurements, outbox } as any)
+      setCounts({ jobs: jobsCount, notes, photos, measurements, outbox } as any)
+      setJobs(jobsList)
+      setRuns(runList)
     }
     load()
   }, [])
@@ -41,6 +47,50 @@ export default function OfflinePage() {
                   <li>Measurements: {counts.measurements ?? 0}</li>
                   <li>Outbox: {counts.outbox ?? 0}</li>
                 </ul>
+              </div>
+            </section>
+            <section className="accordion-item accent-purple">
+              <button className="accordion-button" aria-expanded={true} aria-controls="panel-fishpdf" id="btn-fishpdf">
+                <span>Export Fish Runs (per run)</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+                  <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <div id="panel-fishpdf" role="region" aria-labelledby="btn-fishpdf" className="accordion-panel">
+                {runs.length === 0 ? (
+                  <div className="muted">No fish runs yet</div>
+                ) : (
+                  <ul className="list">
+                    {runs.map(r => (
+                      <li key={r.id}>
+                        <span style={{ marginRight: 8 }}>{r.title || r.id}</span>
+                        <Link className="btn secondary" to={`/fish-run/${r.id}/summary`} title="Open printable fish run summary; use browser Print to save as PDF">Open PDF view</Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+            <section className="accordion-item accent-purple">
+              <button className="accordion-button" aria-expanded={true} aria-controls="panel-pdf" id="btn-pdf">
+                <span>Export PDFs (per job)</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+                  <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </button>
+              <div id="panel-pdf" role="region" aria-labelledby="btn-pdf" className="accordion-panel">
+                {jobs.length === 0 ? (
+                  <div className="muted">No jobs yet</div>
+                ) : (
+                  <ul className="list">
+                    {jobs.map(j => (
+                      <li key={j.id}>
+                        <span style={{ marginRight: 8 }}>{j.clientName || j.id}</span>
+                        <Link className="btn secondary" to={`/job/${j.id}/summary`} title="Opens printable summary; use browser Print to save as PDF">Open PDF view</Link>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
             </section>
             <section className="accordion-item accent-cyan">
@@ -107,4 +157,3 @@ export default function OfflinePage() {
     </div>
   )
 }
-

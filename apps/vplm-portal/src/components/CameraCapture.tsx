@@ -11,7 +11,17 @@ export default function CameraCapture({ jobId }: { jobId: string }) {
     const url = URL.createObjectURL(file)
     setPreview(url)
     const now = new Date().toISOString()
-    await savePhoto({ id: crypto.randomUUID(), jobId, localUri: url, blob: file, caption: '', createdAt: now })
+    // Try to capture location at the time of photo
+    let exif: any = {}
+    try {
+      if ('geolocation' in navigator) {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 8000 }))
+        exif.lat = pos.coords.latitude
+        exif.lon = pos.coords.longitude
+        exif.accuracy = pos.coords.accuracy
+      }
+    } catch {}
+    await savePhoto({ id: crypto.randomUUID(), jobId, localUri: url, blob: file, caption: '', createdAt: now, exif })
     await logJob(jobId, 'photo_add', 'Added photo', getActor())
   }
 

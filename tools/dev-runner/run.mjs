@@ -6,9 +6,11 @@ import { fileURLToPath } from 'node:url'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+
 function parseArgs() {
   const args = process.argv.slice(2)
-  const opts = { url: 'http://localhost:5173', qa: false, keep: true }
+  const opts = { url: 'https://localhost:5173', qa: false, keep: true }
   for (let i = 0; i < args.length; i++) {
     const a = args[i]
     if (a === '--url' && args[i+1]) { opts.url = args[++i]; continue }

@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { addDepthPoint, addMiscPoint, deleteDepthPoint, deleteMiscPoint, listDepthPoints, listMiscPoints, listPonds, logJob, savePond, getActor, deletePond } from '../features/offline/db'
+import html2canvas from 'html2canvas'
+import { savePhoto } from '../features/offline/db'
+import AddressAutocomplete from './AddressAutocomplete'
+import type { AddressSuggestion } from '../lib/places'
 
 type LatLng = [number, number]
 
@@ -155,6 +159,20 @@ export default function PondsMap({ jobId }: { jobId: string }) {
   }, [ponds])
 
   // Geocode/search helper for lat,lon or address
+  function focusOnSuggestion(suggestion: AddressSuggestion) {
+    setSearchQuery(suggestion.label)
+    const map = mapRef.current
+    if (!map) return
+    if (suggestion.lat != null && suggestion.lon != null) {
+      searchLayerRef.current?.clearLayers()
+      const marker = L.circleMarker([suggestion.lat, suggestion.lon], { radius: 7, color: '#10b981', weight: 2, fillColor: '#a7f3d0', fillOpacity: 0.95 })
+      searchLayerRef.current?.addLayer(marker)
+      map.setView([suggestion.lat, suggestion.lon], 16)
+      return
+    }
+    void goSearch()
+  }
+
   async function goSearch() {
     const map = mapRef.current
     if (!map) return
@@ -345,11 +363,33 @@ export default function PondsMap({ jobId }: { jobId: string }) {
           </select>
         </label>
       </div>
+      <div className="row">
+        <button className="btn secondary" onClick={async () => {
+          try {
+            if (!mapEl.current) throw new Error('Map not ready')
+            const canvas = await html2canvas(mapEl.current, { useCORS: true, allowTaint: true, backgroundColor: '#fff' })
+            const blob: Blob = await new Promise((res) => canvas.toBlob(b => res(b!), 'image/png'))
+            const now = new Date().toISOString()
+            await savePhoto({ id: crypto.randomUUID(), jobId, blob, caption: 'Map Snapshot', createdAt: now })
+            alert('Map snapshot saved to Photos')
+          } catch (e: any) {
+            alert('Could not capture map snapshot: ' + (e?.message || e))
+          }
+        }}>Capture Map Snapshot</button>
+      </div>
 
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <label className="row" style={{ gap: 8, flex: 1 }}>
           <span className="muted">Find</span>
-          <input className="input" style={{ minWidth: 240, flex: 1 }} placeholder="lat,lon or address" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} onKeyDown={(e) => { if ((e as any).key === 'Enter') goSearch() }} />
+          <div style={{ minWidth: 240, flex: 1 }}>
+            <AddressAutocomplete
+              value={searchQuery}
+              onChange={(value) => setSearchQuery(value)}
+              onSelect={focusOnSuggestion}
+              onEnter={() => goSearch()}
+              placeholder="lat,lon or address"
+            />
+          </div>
           <button className="btn secondary" onClick={goSearch}>Go</button>
         </label>
       </div>

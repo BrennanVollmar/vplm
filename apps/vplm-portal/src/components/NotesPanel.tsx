@@ -1,25 +1,32 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { db, saveNote, saveAudioNote, updateAudioNote, logJob, getActor } from '../features/offline/db'
-import { createSpeechRecognizer, isSpeechRecognitionSupported, getTranscriptionKey, transcribeWithOpenAI } from '../lib/transcribe'
+import { useAudioRecorder } from '../hooks/useAudioRecorder'
+import { ensureAudioBlob } from '../lib/audio'
+import { getTranscriptionKey, normalizeLanguageTag, transcribeWithOpenAI } from '../lib/transcribe'
 
 export default function NotesPanel({ jobId }: { jobId: string }) {
-  // Text notes
   const [text, setText] = useState('')
-  const [dictating, setDictating] = useState(false)
-  const recRef = useRef<any>(null)
-
-  // Audio recording
-  const [mediaRec, setMediaRec] = useState<MediaRecorder | null>(null)
-  const [recording, setRecording] = useState(false)
-  const chunksRef = useRef<Blob[]>([])
-
-  // Audio input devices
+  const [notes, setNotes] = useState<any[]>([])
+  const [memos, setMemos] = useState<any[]>([])
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([])
   const [deviceId, setDeviceId] = useState<string>('')
-
-  // Audio memo list
-  const [memos, setMemos] = useState<any[]>([])
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editingText, setEditingText] = useState('')
+
+  const {
+    isRecording,
+    startRecording,
+    stopRecording,
+    error: recordingError,
+    resetError: resetRecordingError,
+    isSupported: recordingSupported,
+  } = useAudioRecorder({ deviceId, minDurationMs: 800 })
+
+  useEffect(() => {
+    if (recordingError) setStatusMessage(recordingError)
+  }, [recordingError])
 
   useEffect(() => {
     let active = true
@@ -33,17 +40,30 @@ export default function NotesPanel({ jobId }: { jobId: string }) {
   }, [jobId])
 
   useEffect(() => {
+    let active = true
+    const loadNotes = async () => {
+      const list = await db.notes.where('jobId').equals(jobId).reverse().sortBy('createdAt')
+      if (active) setNotes(list)
+    }
+    loadNotes()
+    const t = setInterval(loadNotes, 2000)
+    return () => { active = false; clearInterval(t) }
+  }, [jobId])
+
+  useEffect(() => {
     async function loadDevices() {
       try {
         if (!navigator.mediaDevices?.enumerateDevices) return
         const list = await navigator.mediaDevices.enumerateDevices()
-        const inputs = list.filter(d => d.kind === 'audioinput')
-        setAudioDevices(inputs as MediaDeviceInfo[])
+        const inputs = list.filter((d) => d.kind === 'audioinput') as MediaDeviceInfo[]
+        setAudioDevices(inputs)
         if (!deviceId && inputs[0]?.deviceId) setDeviceId(inputs[0].deviceId)
-      } catch { /* ignore */ }
+      } catch {
+        // ignore
+      }
     }
     loadDevices()
-  }, [])
+  }, [deviceId])
 
   async function addTextNote(e: React.FormEvent) {
     e.preventDefault()
@@ -51,81 +71,49 @@ export default function NotesPanel({ jobId }: { jobId: string }) {
     if (!body) return
     const now = new Date().toISOString()
     await saveNote({ id: crypto.randomUUID(), jobId, text: body, createdAt: now } as any)
-    await logJob(jobId, 'note_add', `Added note: ${body.slice(0,40)}`, getActor())
+    await logJob(jobId, 'note_add', `Added note: ${body.slice(0, 40)}`, getActor())
     setText('')
   }
 
-  function startDictation() {
-    if (!isSpeechRecognitionSupported()) { alert('Speech recognition not supported in this browser'); return }
+  async function handleStartRecording() {
+    setStatusMessage(null)
+    resetRecordingError()
     try {
-      const rec = createSpeechRecognizer({
-        onResult: (snippet, _final) => {
-          setText((prev) => (prev ? prev + ' ' : '') + String(snippet || '').trim())
-        },
-        onEnd: () => setDictating(false),
-        onError: () => setDictating(false),
-      })
-      recRef.current = rec
-      rec.start()
-      setDictating(true)
-    } catch (e: any) {
-      alert(e?.message || 'Could not start dictation')
+      await startRecording()
+    } catch (err: any) {
+      const message = err?.message || 'Could not start recording.'
+      setStatusMessage(message)
     }
   }
 
-  function stopDictation() {
-    try { recRef.current?.stop?.() } catch {}
-    setDictating(false)
-  }
-
-  async function startRecording() {
+  async function handleStopRecording() {
     try {
-      if (!navigator.mediaDevices?.getUserMedia) { alert('Microphone not supported'); return }
-      const constraints: any = deviceId ? { audio: { deviceId: { exact: deviceId } } } : { audio: true }
-      const stream = await navigator.mediaDevices.getUserMedia(constraints)
-      const mime = pickSupportedMime()
-      const r = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
-      r.ondataavailable = (e) => { if (e.data?.size) chunksRef.current.push(e.data) }
-      r.onstop = async () => {
-        const type = r.mimeType || mime || 'audio/webm'
-        const blob = new Blob(chunksRef.current, { type })
-        chunksRef.current = []
-        const now = new Date().toISOString()
-        await saveAudioNote({ id: crypto.randomUUID(), jobId, blob, createdAt: now, mimeType: type, lang: navigator.language } as any)
-        try { stream.getTracks().forEach(t => t.stop()) } catch {}
-      }
-      r.start()
-      setMediaRec(r)
-      setRecording(true)
-    } catch (e: any) {
-      const msg = String(e?.message || '')
-      if (/NotFoundError|Requested device not found/i.test(msg)) {
-        alert('No microphone found or selected. Check device connection and site permissions, then click Refresh and try again.')
-      } else if (/NotAllowedError|denied/i.test(msg)) {
-        alert('Microphone permission denied. Enable mic access for this site and try again.')
-      } else {
-        alert(msg || 'Could not start recording')
-      }
+      const result = await stopRecording()
+      const durationSec = Math.max(1, Math.round(result.durationMs / 1000))
+      const now = new Date().toISOString()
+      const lang = normalizeLanguageTag(navigator.language)
+      await saveAudioNote({ id: crypto.randomUUID(), jobId, blob: result.blob, createdAt: now, mimeType: result.mimeType, lang, durationSec })
+      const rows = await db.audioNotes.where('jobId').equals(jobId).reverse().sortBy('createdAt')
+      setMemos(rows)
+      setStatusMessage(null)
+    } catch (err: any) {
+      const message = err?.message || 'Recording did not capture any audio.'
+      setStatusMessage(message)
     }
-  }
-
-  function stopRecording() {
-    try { mediaRec?.stop() } finally { setRecording(false); setMediaRec(null) }
-  }
-
-  function pickSupportedMime(): string | undefined {
-    const mimes = ['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/mp4','audio/webm']
-    for (const m of mimes) { if ((window as any).MediaRecorder?.isTypeSupported?.(m)) return m }
-    return undefined
   }
 
   async function transcribe(a: any) {
     try {
       if (!getTranscriptionKey()) { alert('Add an OpenAI API key in Settings to enable transcription.'); return }
       setBusyId(a.id)
-      const text = await transcribeWithOpenAI(a.blob, { language: a.lang })
-      await updateAudioNote(a.id, { transcript: text })
-      await logJob(jobId, 'audio_transcribed', `Transcribed audio note (${(text || '').slice(0, 40)})`, getActor())
+      const blob = ensureAudioBlob(a)
+      if (!blob) {
+        alert('Audio data is unavailable. Please re-record this memo and try again.')
+        return
+      }
+      const textValue = await transcribeWithOpenAI(blob, { language: normalizeLanguageTag(a.lang) })
+      await updateAudioNote(a.id, { transcript: textValue })
+      await logJob(jobId, 'audio_transcribed', `Transcribed audio note (${(textValue || '').slice(0, 40)})`, getActor())
       const rows = await db.audioNotes.where('jobId').equals(jobId).reverse().sortBy('createdAt')
       setMemos(rows)
     } catch (e: any) {
@@ -135,45 +123,108 @@ export default function NotesPanel({ jobId }: { jobId: string }) {
     }
   }
 
+  async function promoteTranscript(a: any) {
+    if (!a?.transcript) return
+    const noteText = `Voice memo transcript: ${a.transcript}`
+    const now = new Date().toISOString()
+    const noteId = crypto.randomUUID()
+    await saveNote({ id: noteId, jobId, text: noteText, createdAt: now } as any)
+    await updateAudioNote(a.id, { promotedNoteId: noteId })
+    await logJob(jobId, 'note_add', `Converted voice memo to note: ${(a.transcript || '').slice(0, 40)}`, getActor())
+    const [memoRows, noteRows] = await Promise.all([
+      db.audioNotes.where('jobId').equals(jobId).reverse().sortBy('createdAt'),
+      db.notes.where('jobId').equals(jobId).reverse().sortBy('createdAt'),
+    ])
+    setMemos(memoRows)
+    setNotes(noteRows)
+  }
+
   return (
     <div className="grid" style={{ gap: 12 }}>
       <form className="row" style={{ gap: 8 }} onSubmit={addTextNote}>
-        <input className="input" style={{ flex: 1, minWidth: 200 }} placeholder={dictating ? 'Listening… speak to dictate' : 'Add a note...'} value={text} onChange={(e) => setText(e.target.value)} />
-        {isSpeechRecognitionSupported() ? (
-          !dictating ? (
-            <button type="button" className="btn secondary" onClick={startDictation}>Dictate</button>
-          ) : (
-            <button type="button" className="btn warn" onClick={stopDictation}>Stop</button>
-          )
-        ) : (
-          <button type="button" className="btn secondary" disabled title="Speech recognition not supported">Dictate</button>
-        )}
+        <input className="input" style={{ flex: 1, minWidth: 200 }} placeholder="Add a note..." value={text} onChange={(e) => setText(e.target.value)} />
         <button className="btn" type="submit">Add</button>
       </form>
-
-      <div className="row" style={{ gap: 8 }}>
+      <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         {audioDevices.length > 0 && (
           <label className="row" style={{ gap: 6 }}>
             <span className="muted">Mic</span>
-            <select className="select" value={deviceId} onChange={(e) => setDeviceId(e.target.value)}>
-              {audioDevices.map(d => (
+            <select className="select" value={deviceId} onChange={(e) => { setDeviceId(e.target.value); setStatusMessage(null) }}>
+              {audioDevices.map((d) => (
                 <option key={d.deviceId} value={d.deviceId}>{d.label || 'Microphone'}</option>
               ))}
             </select>
             <button type="button" className="btn secondary" onClick={async () => {
               try {
                 const list = await navigator.mediaDevices.enumerateDevices()
-                setAudioDevices(list.filter(d => d.kind === 'audioinput') as MediaDeviceInfo[])
-              } catch {}
+                setAudioDevices(list.filter((d) => d.kind === 'audioinput') as MediaDeviceInfo[])
+              } catch { /* ignore */ }
             }}>Refresh</button>
           </label>
         )}
-        {!recording ? (
-          <button className="btn" onClick={startRecording} title="Requires an available microphone">Record Voice Memo</button>
+        {recordingSupported ? (
+          !isRecording ? (
+            <button className="btn" onClick={handleStartRecording} title="Requires an available microphone">Record Voice Memo</button>
+          ) : (
+            <button className="btn warn" onClick={handleStopRecording}>Stop</button>
+          )
         ) : (
-          <button className="btn warn" onClick={stopRecording}>Stop</button>
+          <button className="btn" disabled title="MediaRecorder not supported">Record Voice Memo</button>
         )}
       </div>
+
+      {statusMessage && (
+        <div className="muted" style={{ color: 'var(--danger, #dc2626)' }}>{statusMessage}</div>
+      )}
+
+      {notes.length > 0 && (
+        <section className="card">
+          <h4>Text Notes</h4>
+          <ul className="list">
+            {notes.map((n) => {
+              const isEditing = editingId === n.id
+              return (
+                <li key={n.id}>
+                  <small className="muted">{new Date(n.createdAt).toLocaleString()}</small>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1, whiteSpace: 'pre-wrap' }}>
+                      {isEditing ? (
+                        <textarea className="textarea" value={editingText} onChange={(e) => setEditingText(e.target.value)} rows={Math.max(2, editingText.split('\n').length)} />
+                      ) : (
+                        n.text
+                      )}
+                    </div>
+                    {isEditing ? (
+                      <div className="row" style={{ gap: 6 }}>
+                        <button className="btn secondary" onClick={() => { setEditingId(null); setEditingText('') }}>Cancel</button>
+                        <button className="btn" onClick={async () => {
+                          const trimmed = editingText.trim()
+                          if (!trimmed) { alert('Note cannot be empty.'); return }
+                          await db.notes.update(n.id, { text: trimmed })
+                          await logJob(jobId, 'note_edit', `Updated note: ${trimmed.slice(0, 40)}`, getActor())
+                          const updated = await db.notes.where('jobId').equals(jobId).reverse().sortBy('createdAt')
+                          setNotes(updated)
+                          setEditingId(null)
+                          setEditingText('')
+                        }}>Save</button>
+                      </div>
+                    ) : (
+                      <div className="row" style={{ gap: 6 }}>
+                        <button className="btn secondary" onClick={() => { setEditingId(n.id); setEditingText(n.text || '') }}>Edit</button>
+                        <button className="btn warn" onClick={async () => {
+                          if (!confirm('Delete this note?')) return
+                          await db.notes.delete(n.id)
+                          setNotes(await db.notes.where('jobId').equals(jobId).reverse().sortBy('createdAt'))
+                        }}>Delete</button>
+                      </div>
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </section>
+      )}
 
       {memos.length === 0 ? (
         <div className="muted">No voice memos yet.</div>
@@ -184,13 +235,19 @@ export default function NotesPanel({ jobId }: { jobId: string }) {
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
                 <small className="muted">{new Date(a.createdAt).toLocaleString()}</small>
                 <div className="row" style={{ gap: 8 }}>
-                  <AudioPlayer blob={a.blob} />
-                  <button className="btn" disabled={!!busyId} onClick={() => transcribe(a)}>{busyId === a.id ? 'Transcribing…' : 'Transcribe'}</button>
+                  <AudioPlayer note={a} />
+                  <button className="btn" disabled={!!busyId} onClick={() => transcribe(a)}>{busyId === a.id ? 'Transcribing...' : 'Transcribe'}</button>
+                  <button className="btn warn" onClick={async () => { if (!confirm('Delete this voice memo?')) return; await db.audioNotes.delete(a.id); setMemos(await db.audioNotes.where('jobId').equals(jobId).reverse().sortBy('createdAt')) }}>Delete</button>
                 </div>
               </div>
               {a.transcript && (
                 <div style={{ marginTop: 6 }}>
                   <strong>Transcript:</strong> <div>{a.transcript}</div>
+                  <div className="row" style={{ marginTop: 6, gap: 8 }}>
+                    <button className="btn secondary" disabled={!!a.promotedNoteId} onClick={() => promoteTranscript(a)}>
+                      {a.promotedNoteId ? 'Saved To Notes' : 'Save Transcript as Note'}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -201,9 +258,18 @@ export default function NotesPanel({ jobId }: { jobId: string }) {
   )
 }
 
-function AudioPlayer({ blob }: { blob?: Blob }) {
+function AudioPlayer({ note }: { note: any }) {
+  const blob = useMemo(() => ensureAudioBlob(note), [note])
   const url = useMemo(() => (blob ? URL.createObjectURL(blob) : undefined), [blob])
   useEffect(() => () => { if (url) URL.revokeObjectURL(url) }, [url])
-  if (!url) return null
-  return <audio controls src={url} />
+  if (!url || !blob) {
+    return <span className="muted">Audio unavailable</span>
+  }
+  const type = blob.type || note?.mimeType || 'audio/webm'
+  return (
+    <audio controls>
+      <source src={url} type={type} />
+      Your browser does not support audio playback.
+    </audio>
+  )
 }

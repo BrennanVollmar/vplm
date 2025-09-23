@@ -4,7 +4,7 @@ import fs from "node:fs";
 const cfgPath = new URL("./urls.json", import.meta.url);
 const raw = fs.readFileSync(cfgPath).toString();
 const urls = JSON.parse(raw);
-const base = process.env.BASE_URL || urls.baseUrl || "http://localhost:5173";
+const base = process.env.BASE_URL || urls.baseUrl || "https://localhost:5173";
 
 export default defineConfig({
   testDir: "./tests",

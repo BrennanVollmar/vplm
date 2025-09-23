@@ -13,6 +13,9 @@ export interface Job {
   clientName: string
   siteName?: string
   address?: string
+  city?: string
+  county?: string
+  zip?: string
   lat?: number
   lon?: number
   createdBy?: string

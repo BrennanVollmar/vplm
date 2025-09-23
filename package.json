@@ -3,13 +3,15 @@
   "private": true,
   "scripts": {
     "dev": "npm --prefix apps/vplm-portal run dev",
+    "dev:site": "npm --prefix apps/vplm-portal run dev",
     "build": "npm --prefix apps/vplm-portal run build",
     "preview": "npm --prefix apps/vplm-portal run preview",
-    "test": "npm --prefix apps/vplm-portal run test",
-    "mcp:dev": "npm --prefix mcp run dev",
-    "mcp:start": "npm --prefix mcp run start"
+    "test": "npm --prefix apps/vplm-portal run test"
   },
   "workspaces": [
     "apps/*"
-  ]
+  ],
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
 }

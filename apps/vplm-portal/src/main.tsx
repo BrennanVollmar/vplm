@@ -6,6 +6,7 @@ import { registerSW } from './sw-reg'
 import './styles.css'
 import ErrorBoundary from './components/ErrorBoundary'
 import ToastProvider from './components/ToastProvider'
+import { AuthProvider } from './lib/auth'
 
 const root = document.getElementById('root')!
 ReactDOM.createRoot(root).render(
@@ -13,7 +14,9 @@ ReactDOM.createRoot(root).render(
     <BrowserRouter>
       <ToastProvider>
         <ErrorBoundary>
-          <App />
+          <AuthProvider>
+            <App />
+          </AuthProvider>
         </ErrorBoundary>
       </ToastProvider>
     </BrowserRouter>

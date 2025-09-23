@@ -26,6 +26,8 @@ class TpmDB extends Dexie {
   tasks!: Table<JobTask, string>
   fishSessions!: Table<FishSession, string>
   fishCounts!: Table<FishCount, string>
+  fishRuns!: Table<FishRun, string>
+  fishStops!: Table<FishStop, string>
   chemRefs!: Table<ChemRef, string>
   profiles!: Table<Profile, string>
   jobLogs!: Table<JobLogEntry, string>
@@ -33,6 +35,7 @@ class TpmDB extends Dexie {
   depthPoints!: Table<DepthPoint, string>
   ponds!: Table<PondOutline, string>
   miscPoints!: Table<MiscPoint, string>
+  addressBank!: Table<AddressBankEntry, string>
 
   constructor() {
     super('tpm_field_db')
@@ -85,6 +88,13 @@ class TpmDB extends Dexie {
     })
     this.version(13).stores({
       miscPoints: 'id, jobId, createdAt'
+    })
+    this.version(14).stores({
+      fishRuns: 'id, createdAt',
+      fishStops: 'id, runId, seq'
+    })
+    this.version(15).stores({
+      addressBank: 'id, clientName, address'
     })
   }
 }
@@ -166,19 +176,76 @@ export interface ChecklistItem {
 export interface AudioNote {
   id: string
   jobId: string
-  blob: Blob
   createdAt: string
   durationSec?: number
   transcript?: string
   mimeType?: string
   lang?: string
+  stopId?: string
+  data?: ArrayBuffer | Uint8Array
+  blob?: Blob // optional in-memory helper; not persisted for compatibility
+  promotedNoteId?: string
+}
+
+type AudioNotePayload = Omit<AudioNote, 'data'> & {
+  data?: ArrayBuffer | Uint8Array
+  blob?: Blob
 }
 
 export async function saveTrack(t: Track) { await db.tracks.put(t); await enqueueMutation({ id: t.id, type: 'job', op: 'update', payload: { track: true, jobId: t.jobId }, createdAt: t.createdAt }) }
 export async function saveWaterQuality(e: WaterQualityEntry) { await db.waterQuality.put(e); await enqueueMutation({ id: e.id, type: 'job', op: 'update', payload: { waterQuality: true, jobId: e.jobId }, createdAt: e.createdAt }) }
 export async function saveChecklist(c: ChecklistItem) { await db.checklists.put(c) }
-export async function saveAudioNote(a: AudioNote) { await db.audioNotes.put(a) }
+export async function saveAudioNote(note: AudioNotePayload) {
+  const { blob, data, mimeType, ...rest } = note
+  let resolvedData: Uint8Array | undefined
+  if (blob) {
+    resolvedData = new Uint8Array(await blob.arrayBuffer())
+  } else if (data instanceof Uint8Array) {
+    resolvedData = new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength))
+  } else if (data instanceof ArrayBuffer) {
+    resolvedData = new Uint8Array(data)
+  }
+  const record: AudioNote = {
+    ...rest,
+    mimeType: mimeType || blob?.type || 'audio/webm',
+    ...(resolvedData ? { data: resolvedData } : {}),
+  }
+  await db.audioNotes.put(record)
+}
 export async function updateAudioNote(id: string, patch: Partial<AudioNote>) { await db.audioNotes.update(id, patch) }
+
+// Fish Run types
+export interface FishRun {
+  id: string
+  title?: string
+  createdAt: string
+  plannedAt?: string
+  notes?: string
+}
+export interface FishStop {
+  id: string
+  runId: string
+  seq: number
+  client?: string
+  site?: string
+  address?: string
+  lat?: number
+  lon?: number
+  species?: string
+  count?: number
+  weightLb?: number
+  tankTempF?: number
+  pondTempF?: number
+  note?: string
+  createdAt: string
+}
+
+export async function saveFishRun(run: FishRun) { await db.fishRuns.put(run) }
+export async function listFishRuns() { return db.fishRuns.orderBy('createdAt').reverse().toArray() }
+export async function deleteFishRun(id: string) { await db.fishStops.where('runId').equals(id).delete(); await db.fishRuns.delete(id) }
+export async function addFishStop(stop: FishStop) { await db.fishStops.put(stop) }
+export async function updateFishStop(id: string, patch: Partial<FishStop>) { await db.fishStops.update(id, patch) }
+export async function listFishStops(runId: string) { return db.fishStops.where('runId').equals(runId).sortBy('seq') }
 
 // Job action log
 export interface JobLogEntry { id: string; jobId: string; ts: string; actor?: string; kind: string; message: string }
@@ -219,6 +286,26 @@ export async function savePond(o: PondOutline) { await db.ponds.put(o) }
 export async function listPonds(jobId: string) { return db.ponds.where('jobId').equals(jobId).toArray() }
 export async function deletePond(id: string) { await db.ponds.delete(id) }
 
+// Client bank entries (common client sites)
+export interface ClientBankContact { id: string; label?: string; phone: string }
+export interface AddressBankEntry {
+  id: string
+  clientName: string
+  address: string
+  contactName?: string
+  primaryPhone?: string
+  otherPhones?: string[]
+  contacts?: ClientBankContact[]
+  notes?: string
+  lat?: number
+  lon?: number
+  createdAt: string
+  updatedAt?: string
+}
+export async function saveAddressBankEntry(entry: AddressBankEntry) { await db.addressBank.put(entry) }
+export async function listAddressBankEntries() { return db.addressBank.orderBy('clientName').toArray() }
+export async function deleteAddressBankEntry(id: string) { await db.addressBank.delete(id) }
+
 // Miscellaneous points (objects/installs/notes)
 export interface MiscPoint { id: string; jobId: string; lat: number; lon: number; name: string; note?: string; createdAt: string }
 export async function addMiscPoint(p: MiscPoint) { await db.miscPoints.put(p) }
@@ -226,15 +313,46 @@ export async function listMiscPoints(jobId: string) { return db.miscPoints.where
 export async function deleteMiscPoint(id: string) { await db.miscPoints.delete(id) }
 
 // Time entries (arrival/departure)
-export interface TimeEntry { id: string; jobId: string; date: string; arrivalAt?: string; departureAt?: string }
-export async function upsertTimeEntry(entry: TimeEntry) { await db.timeEntries.put(entry) }
-export async function getTimeEntries(jobId: string) { return db.timeEntries.where('jobId').equals(jobId).toArray() }
+export interface TimeEntry {
+  id: string
+  jobId: string
+  date: string
+  arrivalAt: string
+  departureAt?: string
+}
+
+export async function getTimeEntries(jobId: string) {
+  return db.timeEntries.where('jobId').equals(jobId).sortBy('arrivalAt')
+}
+
+export async function startTimeEntry(jobId: string, date: string) {
+  const now = new Date().toISOString()
+  const active = await db.timeEntries.where('jobId').equals(jobId).filter((row) => !row.departureAt).first()
+  if (active) {
+    throw new Error('Already clocked in for this job. Clock out before starting another entry.')
+  }
+  const entry: TimeEntry = { id: crypto.randomUUID(), jobId, date, arrivalAt: now }
+  await db.timeEntries.put(entry)
+  return entry
+}
+
+export async function stopTimeEntry(jobId: string) {
+  const now = new Date().toISOString()
+  const active = await db.timeEntries.where('jobId').equals(jobId).filter((row) => !row.departureAt).last()
+  if (!active) {
+    throw new Error('No active clock-in found for this job.')
+  }
+  const updated: TimeEntry = { ...active, departureAt: now }
+  await db.timeEntries.put(updated)
+  return updated
+}
 
 // Job tasks
 export interface JobTask { id: string; jobId: string; label: string; done: boolean; createdAt: string }
 export async function addTask(t: JobTask) { await db.tasks.put(t) }
 export async function toggleTask(id: string, done: boolean) { await db.tasks.update(id, { done }) }
 export async function getTasks(jobId: string) { return db.tasks.where('jobId').equals(jobId).toArray() }
+export async function deleteTask(id: string) { await db.tasks.delete(id) }
 
 // Fishery study
 export interface FishSession { id: string; jobId?: string; startedAt: string; endedAt?: string }
