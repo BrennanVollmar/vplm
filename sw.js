@@ -1,5 +1,5 @@
 // Simple cache-first service worker for static assets
-const CACHE_NAME = 'tpm-field-static-v2';
+const CACHE_NAME = 'tpm-field-static-v3';
 const API_CACHE = 'tpm-field-api-v2';
 const ASSETS = [
   '/',
@@ -25,6 +25,28 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url)
+
+  // Ensure browser reloads of deep links always resolve the SPA shell even if the
+  // origin returns a 404 (GitHub Pages, static hosting, etc.).
+  if (req.mode === 'navigate' && url.origin === location.origin) {
+    event.respondWith((async () => {
+      try {
+        const networkResponse = await fetch(req);
+        if (networkResponse.status === 404) {
+          throw new Error('Navigation returned 404');
+        }
+        return networkResponse;
+      } catch {
+        const cache = await caches.open(CACHE_NAME);
+        const cachedIndex = await cache.match('/') || await cache.match('/index.html');
+        if (cachedIndex) {
+          return cachedIndex;
+        }
+        return Response.redirect('/', 302);
+      }
+    })());
+    return;
+  }
 
   // NetworkFirst for Supabase REST GETs
   if (/supabase\.co\/rest\/v1\//.test(url.href)) {
