@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Redirecting…</title>
+    <script>
+      /*!
+       * SPA GitHub Pages redirect script
+       * https://github.com/rafgraph/spa-github-pages
+       */
+      (function() {
+        var redirect = sessionStorage.getItem('spa-github-pages:redirect');
+        if (!redirect) {
+          var l = window.location;
+          sessionStorage.setItem('spa-github-pages:redirect',
+            JSON.stringify({
+              pathname: l.pathname,
+              search: l.search,
+              hash: l.hash
+            })
+          );
+          window.location.replace(l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') + '/?redirectedFrom=404');
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <p>Redirecting…</p>
+  </body>
+</html>
