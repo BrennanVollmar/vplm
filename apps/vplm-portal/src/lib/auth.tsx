@@ -10,6 +10,9 @@ type AuthCtx = {
   login: (phone: string, password: string, rememberDevice?: boolean) => Promise<void>
   logout: () => void
   hydrated: boolean
+  deviceTrusted: boolean
+  trustedUntil: number | null
+  revokeDeviceTrust: () => void
 }
 
 const Ctx = createContext<AuthCtx | undefined>(undefined)
@@ -19,6 +22,14 @@ const DEVICE_ID_KEY = 'auth_device_id'
 const TRUST_DURATION_MS = 24 * 60 * 60 * 1000 // 24 hours
 
 type TrustedDeviceMap = Record<string, { expiresAt: number; userId?: string }>
+
+type InitialSnapshot = {
+  token: string | null
+  user: User | null
+  deviceId: string | null
+  deviceTrusted: boolean
+  trustedUntil: number | null
+}
 
 function isBrowser() {
   return typeof window !== 'undefined'
@@ -70,20 +81,24 @@ function getTrustedEntry(deviceId: string | null) {
   return null
 }
 
-function trustDevice(deviceId: string | null, userId: string) {
-  if (!deviceId || !isBrowser()) return
+function trustDevice(deviceId: string | null, userId: string): number | null {
+  if (!deviceId || !isBrowser()) return null
   const map = loadTrustedDevices()
-  map[deviceId] = { expiresAt: Date.now() + TRUST_DURATION_MS, userId }
+  const expiresAt = Date.now() + TRUST_DURATION_MS
+  map[deviceId] = { expiresAt, userId }
   saveTrustedDevices(map)
+  return expiresAt
 }
 
-function clearTrustedDevice(deviceId: string | null) {
-  if (!deviceId || !isBrowser()) return
+function clearTrustedDevice(deviceId: string | null): boolean {
+  if (!deviceId || !isBrowser()) return false
   const map = loadTrustedDevices()
   if (map[deviceId]) {
     delete map[deviceId]
     saveTrustedDevices(map)
+    return true
   }
+  return false
 }
 
 function readStoredUser(): User | null {
@@ -95,32 +110,37 @@ function readStoredUser(): User | null {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const deviceIdRef = useRef<string | null>(null)
-  const initialSnapshot = useMemo(() => {
+  const initialSnapshot = useMemo<InitialSnapshot>(() => {
     if (!isBrowser()) {
-      return { token: null as string | null, user: null as User | null, deviceId: null as string | null }
+      return { token: null, user: null, deviceId: null, deviceTrusted: false, trustedUntil: null }
     }
     const deviceId = ensureDeviceId()
     const storedToken = localStorage.getItem('auth_token')
     const storedUser = readStoredUser()
     let token: string | null = null
     let hydratedUser: User | null = null
+    let deviceTrusted = false
+    let trustedUntil: number | null = null
     if (storedToken && storedUser) {
       const trust = getTrustedEntry(deviceId)
       if (trust) {
         token = storedToken
         hydratedUser = storedUser
+        deviceTrusted = true
+        trustedUntil = trust.expiresAt
       } else if (storedToken === 'DEV') {
-        // Migration: trust existing local developer sessions going forward
-        trustDevice(deviceId, storedUser.id)
+        const expiresAt = trustDevice(deviceId, storedUser.id)
         token = storedToken
         hydratedUser = storedUser
+        deviceTrusted = Boolean(expiresAt)
+        trustedUntil = expiresAt
       } else {
         localStorage.removeItem('auth_token')
         localStorage.removeItem('auth_user')
         localStorage.removeItem('auth_last_phone')
       }
     }
-    return { token, user: hydratedUser, deviceId }
+    return { token, user: hydratedUser, deviceId, deviceTrusted, trustedUntil }
   }, [])
 
   if (!deviceIdRef.current) deviceIdRef.current = initialSnapshot.deviceId
@@ -128,6 +148,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(initialSnapshot.user)
   const [token, setToken] = useState<string | null>(initialSnapshot.token)
   const [hydrated, setHydrated] = useState<boolean>(!initialSnapshot.token)
+  const [deviceTrusted, setDeviceTrusted] = useState<boolean>(initialSnapshot.deviceTrusted)
+  const [trustedUntil, setTrustedUntil] = useState<number | null>(initialSnapshot.trustedUntil)
 
   useEffect(() => {
     if (!token) {
@@ -168,6 +190,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         setToken(null)
         setUser(null)
+        setDeviceTrusted(false)
+        setTrustedUntil(null)
       })
       .finally(() => { if (!cancelled) setHydrated(true) })
     return () => { cancelled = true }
@@ -175,6 +199,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function login(phone: string, password: string, rememberDevice = true) {
     const deviceId = deviceIdRef.current
+    const applyTrust = (shouldTrust: boolean, userId: string) => {
+      if (shouldTrust) {
+        const expiresAt = trustDevice(deviceId, userId)
+        if (expiresAt) {
+          setDeviceTrusted(true)
+          setTrustedUntil(expiresAt)
+        } else {
+          setDeviceTrusted(false)
+          setTrustedUntil(null)
+        }
+      } else {
+        clearTrustedDevice(deviceId)
+        setDeviceTrusted(false)
+        setTrustedUntil(null)
+      }
+    }
+
     // Try local auth first (no API dependency)
     const local = authenticateLocal(phone, password)
     if (local) {
@@ -183,9 +224,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('auth_token', 'DEV')
         localStorage.setItem('auth_user', JSON.stringify(mapped))
         localStorage.setItem('auth_last_phone', local.phone)
-        if (rememberDevice) trustDevice(deviceId, mapped.id)
-        else clearTrustedDevice(deviceId)
       }
+      applyTrust(rememberDevice, mapped.id)
       setToken('DEV')
       setUser(mapped)
       setHydrated(true)
@@ -197,9 +237,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (isBrowser()) {
       localStorage.setItem('auth_token', j.token)
       localStorage.setItem('auth_user', JSON.stringify(j.user))
-      if (rememberDevice) trustDevice(deviceId, j.user.id)
-      else clearTrustedDevice(deviceId)
     }
+    applyTrust(rememberDevice, j.user.id)
     setToken(j.token)
     setUser(j.user)
     setHydrated(true)
@@ -210,14 +249,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem('auth_token')
       localStorage.removeItem('auth_user')
       localStorage.removeItem('auth_last_phone')
-      clearTrustedDevice(deviceIdRef.current)
     }
+    clearTrustedDevice(deviceIdRef.current)
+    setDeviceTrusted(false)
+    setTrustedUntil(null)
     setToken(null)
     setUser(null)
     setHydrated(true)
   }
 
-  return <Ctx.Provider value={{ user, token, login, logout, hydrated }}>{children}</Ctx.Provider>
+  function revokeDeviceTrust() {
+    clearTrustedDevice(deviceIdRef.current)
+    setDeviceTrusted(false)
+    setTrustedUntil(null)
+  }
+
+  return (
+    <Ctx.Provider
+      value={{ user, token, login, logout, hydrated, deviceTrusted, trustedUntil, revokeDeviceTrust }}
+    >
+      {children}
+    </Ctx.Provider>
+  )
 }
 
 export function useAuth() {

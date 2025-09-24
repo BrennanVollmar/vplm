@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
+import { useAuth } from '../lib/auth'
 
 export default function SettingsPage() {
   const [employee, setEmployee] = useState('')
   const [dark, setDark] = useState(false)
   const [fieldMode, setFieldMode] = useState(false)
+  const { deviceTrusted, trustedUntil, revokeDeviceTrust } = useAuth()
   useEffect(() => {
     setEmployee(localStorage.getItem('defaultEmployee') || '')
     setDark(document.documentElement.classList.contains('theme-dark'))
@@ -48,6 +50,32 @@ export default function SettingsPage() {
           </div>
         </div>
         <div className="row" style={{ marginTop: 8 }}><button className="btn" onClick={save}>Save</button></div>
+      </section>
+      <section className="card">
+        <h2>Device Trust</h2>
+        <p className="muted" style={{ marginBottom: 12 }}>
+          Trusted devices can refresh or reopen the site without signing in again for 24 hours.
+        </p>
+        {deviceTrusted ? (
+          <p style={{ marginBottom: 12 }}>
+            This device is trusted until <strong>{trustedUntil ? new Date(trustedUntil).toLocaleString() : 'the end of the window'}</strong>.
+          </p>
+        ) : (
+          <p style={{ marginBottom: 12 }}>
+            This device is currently <strong>not</strong> trusted. You’ll be asked to sign in again after a refresh.
+          </p>
+        )}
+        <div className="row">
+          <button
+            className="btn secondary"
+            type="button"
+            onClick={revokeDeviceTrust}
+            disabled={!deviceTrusted}
+            title={deviceTrusted ? 'Stop trusting this device' : 'This device is not currently trusted'}
+          >
+            Stop trusting this device
+          </button>
+        </div>
       </section>
     </div>
   )
