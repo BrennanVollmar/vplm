@@ -1,23 +1,15 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <title>Redirecting…</title>
-    <script type="text/javascript">
-      /*! Based on https://github.com/rafgraph/spa-github-pages */
-      (function(l) {
-        var pathSegmentsToKeep = 0;
-        var path = l.pathname.slice(1);
-        var redirect = l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
-          l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +
-          path.replace(/\/$/, '') +
-          (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
-          l.hash;
-        window.location.replace(redirect);
-      })(window.location);
-    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b6b53" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>VPLM Portal</title>
+    <script type="module" crossorigin src="/assets/index-DPfCsZk0.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DunN6_GJ.css">
   </head>
   <body>
-    <p>Redirecting…</p>
+    <div id="root"></div>
   </body>
-</html>
+  </html>
