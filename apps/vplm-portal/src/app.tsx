@@ -1,4 +1,4 @@
-import { Link, NavLink, Route, Routes, Navigate } from 'react-router-dom'
+import { Link, NavLink, Route, Routes, Navigate, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
 import Dashboard from './routes/index'
 import JobPage from './routes/job'
@@ -74,8 +74,10 @@ export default function App() {
 }
 
 function Guard({ children, devOnly }: { children: any; devOnly?: boolean }) {
-  const { user } = useAuth()
-  if (!user) return <Navigate to="/login" replace />
+  const { user, hydrated } = useAuth()
+  const location = useLocation()
+  if (!hydrated) return null
+  if (!user) return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search}${location.hash}` }} />
   if (devOnly && user.role !== 'developer') return <Navigate to="/" replace />
   return children
 }

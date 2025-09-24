@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react'
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { apiFetch, hasRemoteApi } from './api'
 import { authenticateLocal, findUserByPhone } from '../features/users/local'
 
@@ -7,80 +7,217 @@ type User = { id: string; phone: string; name?: string; role: 'user'|'developer'
 type AuthCtx = {
   user: User | null
   token: string | null
-  login: (phone: string, password: string) => Promise<void>
+  login: (phone: string, password: string, rememberDevice?: boolean) => Promise<void>
   logout: () => void
+  hydrated: boolean
 }
 
 const Ctx = createContext<AuthCtx | undefined>(undefined)
 
+const TRUST_STORAGE_KEY = 'auth_trusted_devices'
+const DEVICE_ID_KEY = 'auth_device_id'
+const TRUST_DURATION_MS = 24 * 60 * 60 * 1000 // 24 hours
+
+type TrustedDeviceMap = Record<string, { expiresAt: number; userId?: string }>
+
+function isBrowser() {
+  return typeof window !== 'undefined'
+}
+
+function ensureDeviceId(): string | null {
+  if (!isBrowser()) return null
+  let id = localStorage.getItem(DEVICE_ID_KEY)
+  if (!id) {
+    const fallback = Math.random().toString(36).slice(2)
+    id = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+      ? crypto.randomUUID()
+      : `dev-${fallback}`
+    localStorage.setItem(DEVICE_ID_KEY, id)
+  }
+  return id
+}
+
+function loadTrustedDevices(): TrustedDeviceMap {
+  if (!isBrowser()) return {}
+  const raw = localStorage.getItem(TRUST_STORAGE_KEY)
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') return parsed as TrustedDeviceMap
+  } catch {
+    // ignore parse errors and reset below
+  }
+  return {}
+}
+
+function saveTrustedDevices(map: TrustedDeviceMap) {
+  if (!isBrowser()) return
+  localStorage.setItem(TRUST_STORAGE_KEY, JSON.stringify(map))
+}
+
+function getTrustedEntry(deviceId: string | null) {
+  if (!deviceId || !isBrowser()) return null
+  const map = loadTrustedDevices()
+  const entry = map[deviceId]
+  const now = Date.now()
+  if (entry && entry.expiresAt > now) {
+    return entry
+  }
+  if (entry) {
+    delete map[deviceId]
+    saveTrustedDevices(map)
+  }
+  return null
+}
+
+function trustDevice(deviceId: string | null, userId: string) {
+  if (!deviceId || !isBrowser()) return
+  const map = loadTrustedDevices()
+  map[deviceId] = { expiresAt: Date.now() + TRUST_DURATION_MS, userId }
+  saveTrustedDevices(map)
+}
+
+function clearTrustedDevice(deviceId: string | null) {
+  if (!deviceId || !isBrowser()) return
+  const map = loadTrustedDevices()
+  if (map[deviceId]) {
+    delete map[deviceId]
+    saveTrustedDevices(map)
+  }
+}
+
+function readStoredUser(): User | null {
+  if (!isBrowser()) return null
+  const stored = localStorage.getItem('auth_user')
+  if (!stored) return null
+  try { return JSON.parse(stored) } catch { return null }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
-  const [token, setToken] = useState<string | null>(null)
+  const deviceIdRef = useRef<string | null>(null)
+  const initialSnapshot = useMemo(() => {
+    if (!isBrowser()) {
+      return { token: null as string | null, user: null as User | null, deviceId: null as string | null }
+    }
+    const deviceId = ensureDeviceId()
+    const storedToken = localStorage.getItem('auth_token')
+    const storedUser = readStoredUser()
+    let token: string | null = null
+    let hydratedUser: User | null = null
+    if (storedToken && storedUser) {
+      const trust = getTrustedEntry(deviceId)
+      if (trust) {
+        token = storedToken
+        hydratedUser = storedUser
+      } else if (storedToken === 'DEV') {
+        // Migration: trust existing local developer sessions going forward
+        trustDevice(deviceId, storedUser.id)
+        token = storedToken
+        hydratedUser = storedUser
+      } else {
+        localStorage.removeItem('auth_token')
+        localStorage.removeItem('auth_user')
+        localStorage.removeItem('auth_last_phone')
+      }
+    }
+    return { token, user: hydratedUser, deviceId }
+  }, [])
+
+  if (!deviceIdRef.current) deviceIdRef.current = initialSnapshot.deviceId
+
+  const [user, setUser] = useState<User | null>(initialSnapshot.user)
+  const [token, setToken] = useState<string | null>(initialSnapshot.token)
+  const [hydrated, setHydrated] = useState<boolean>(!initialSnapshot.token)
 
   useEffect(() => {
-    const storedToken = localStorage.getItem('auth_token')
-    const storedUser = localStorage.getItem('auth_user')
-    if (storedToken === 'DEV') {
-      setToken('DEV')
-      if (storedUser) {
-        try { setUser(JSON.parse(storedUser)) } catch { /* ignore */ }
-      } else {
-        const lastPhone = localStorage.getItem('auth_last_phone')
+    if (!token) {
+      setHydrated(true)
+      return
+    }
+    if (token === 'DEV') {
+      if (!user) {
+        const lastPhone = isBrowser() ? localStorage.getItem('auth_last_phone') : null
         if (lastPhone) {
           const local = findUserByPhone(lastPhone)
           if (local) {
             const mapped = { id: local.id, phone: local.phone, name: local.name, role: local.role }
-            localStorage.setItem('auth_user', JSON.stringify(mapped))
+            if (isBrowser()) localStorage.setItem('auth_user', JSON.stringify(mapped))
             setUser(mapped)
           }
         }
       }
+      setHydrated(true)
       return
     }
-    if (storedToken && hasRemoteApi) {
-      setToken(storedToken)
-      apiFetch('/auth/me')
-        .then((j) => {
-          setUser(j.user)
-          localStorage.setItem('auth_user', JSON.stringify(j.user))
-        })
-        .catch(() => {
+    if (!hasRemoteApi) {
+      setHydrated(true)
+      return
+    }
+    let cancelled = false
+    setHydrated(false)
+    apiFetch('/auth/me')
+      .then((j) => {
+        if (cancelled) return
+        setUser(j.user)
+        if (isBrowser()) localStorage.setItem('auth_user', JSON.stringify(j.user))
+      })
+      .catch(() => {
+        if (isBrowser()) {
           localStorage.removeItem('auth_token')
           localStorage.removeItem('auth_user')
-          setToken(null)
-        })
-    }
-  }, [])
+        }
+        setToken(null)
+        setUser(null)
+      })
+      .finally(() => { if (!cancelled) setHydrated(true) })
+    return () => { cancelled = true }
+  }, [token])
 
-  async function login(phone: string, password: string) {
+  async function login(phone: string, password: string, rememberDevice = true) {
+    const deviceId = deviceIdRef.current
     // Try local auth first (no API dependency)
     const local = authenticateLocal(phone, password)
     if (local) {
       const mapped = { id: local.id, phone: local.phone, name: local.name, role: local.role }
-      localStorage.setItem('auth_token', 'DEV')
-      localStorage.setItem('auth_user', JSON.stringify(mapped))
-      localStorage.setItem('auth_last_phone', local.phone)
+      if (isBrowser()) {
+        localStorage.setItem('auth_token', 'DEV')
+        localStorage.setItem('auth_user', JSON.stringify(mapped))
+        localStorage.setItem('auth_last_phone', local.phone)
+        if (rememberDevice) trustDevice(deviceId, mapped.id)
+        else clearTrustedDevice(deviceId)
+      }
       setToken('DEV')
       setUser(mapped)
+      setHydrated(true)
       return
     }
     // If not found locally, try API (optional)
     if (!hasRemoteApi) throw new Error('No remote API configured for login. Use a developer account.')
     const j = await apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ phone, password }) })
-    localStorage.setItem('auth_token', j.token)
-    localStorage.setItem('auth_user', JSON.stringify(j.user))
+    if (isBrowser()) {
+      localStorage.setItem('auth_token', j.token)
+      localStorage.setItem('auth_user', JSON.stringify(j.user))
+      if (rememberDevice) trustDevice(deviceId, j.user.id)
+      else clearTrustedDevice(deviceId)
+    }
     setToken(j.token)
     setUser(j.user)
-  }
-  function logout() {
-    localStorage.removeItem('auth_token')
-    localStorage.removeItem('auth_user')
-    localStorage.removeItem('auth_last_phone')
-    setToken(null)
-    setUser(null)
+    setHydrated(true)
   }
 
-  return <Ctx.Provider value={{ user, token, login, logout }}>{children}</Ctx.Provider>
+  function logout() {
+    if (isBrowser()) {
+      localStorage.removeItem('auth_token')
+      localStorage.removeItem('auth_user')
+      localStorage.removeItem('auth_last_phone')
+      clearTrustedDevice(deviceIdRef.current)
+    }
+    setToken(null)
+    setUser(null)
+    setHydrated(true)
+  }
+
+  return <Ctx.Provider value={{ user, token, login, logout, hydrated }}>{children}</Ctx.Provider>
 }
 
 export function useAuth() {
