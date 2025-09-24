@@ -11,17 +11,19 @@ import { AuthProvider } from './lib/auth'
 // Handle GitHub Pages SPA redirects (see public/404.html)
 (function handleGithubPagesRedirect() {
   try {
-    const url = new URL(window.location.href)
-    const redirectParam = url.searchParams.get('p')
-    if (!redirectParam) return
-    const restoredPath = redirectParam
-      .replace(/~and~/g, '&')
-      .replace(/\/+/g, '/')
-    const newPath = restoredPath.startsWith('/') ? restoredPath : `/${restoredPath}`
-    url.searchParams.delete('p')
-    const remainingSearch = url.searchParams.toString()
-    const finalUrl = `${newPath}${remainingSearch ? `?${remainingSearch}` : ''}${url.hash}`
-    window.history.replaceState(null, '', finalUrl)
+    const search = window.location.search
+    if (search.startsWith('?/')) {
+      const redirect = search.substring(2)
+      const parts = redirect.split('&')
+      const pathRaw = decodeURIComponent(parts[0] || '')
+      const path = pathRaw ? (pathRaw.startsWith('/') ? pathRaw : `/${pathRaw}`) : '/'
+      const querySegments = parts.slice(1).map((segment) =>
+        decodeURIComponent(segment.replace(/~and~/g, '&'))
+      ).filter(Boolean)
+      const queryString = querySegments.length ? `?${querySegments.join('&')}` : ''
+      const newUrl = `${path}${queryString}${window.location.hash}`
+      window.history.replaceState(null, '', newUrl)
+    }
   } catch (err) {
     console.warn('GitHub Pages redirect handling failed', err)
   }
