@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview --port 5173 --host localhost",
     "test": "vitest run",
-    "postbuild": "echo www.lakemanagementservice.com > dist/CNAME",
+    "postbuild": "node scripts/postbuild.mjs",
     "deploy": "gh-pages -d dist -b gh-pages"
   },
   "dependencies": {
