@@ -184,10 +184,10 @@ export default function NotesPanel({ jobId }: { jobId: string }) {
             {notes.map((n) => {
               const isEditing = editingId === n.id
               return (
-                <li key={n.id}>
+                <li key={n.id} style={{ display: 'grid', gap: 6 }}>
                   <small className="muted">{new Date(n.createdAt).toLocaleString()}</small>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start' }}>
-                    <div style={{ flex: 1, whiteSpace: 'pre-wrap' }}>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <div style={{ whiteSpace: 'pre-wrap' }}>
                       {isEditing ? (
                         <textarea className="textarea" value={editingText} onChange={(e) => setEditingText(e.target.value)} rows={Math.max(2, editingText.split('\n').length)} />
                       ) : (
@@ -195,7 +195,7 @@ export default function NotesPanel({ jobId }: { jobId: string }) {
                       )}
                     </div>
                     {isEditing ? (
-                      <div className="row" style={{ gap: 6 }}>
+                      <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
                         <button className="btn secondary" onClick={() => { setEditingId(null); setEditingText('') }}>Cancel</button>
                         <button className="btn" onClick={async () => {
                           const trimmed = editingText.trim()
@@ -209,7 +209,7 @@ export default function NotesPanel({ jobId }: { jobId: string }) {
                         }}>Save</button>
                       </div>
                     ) : (
-                      <div className="row" style={{ gap: 6 }}>
+                      <div className="row" style={{ gap: 6, justifyContent: 'flex-end' }}>
                         <button className="btn secondary" onClick={() => { setEditingId(n.id); setEditingText(n.text || '') }}>Edit</button>
                         <button className="btn warn" onClick={async () => {
                           if (!confirm('Delete this note?')) return

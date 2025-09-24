@@ -24,6 +24,10 @@ export function listUsersLocal(): LocalUser[] {
   return read()
 }
 
+export function findUserByPhone(phone: string): LocalUser | undefined {
+  return read().find((u) => String(u.phone) === String(phone))
+}
+
 export function upsertUserLocal(u: { phone: string; name?: string; role?: 'user'|'developer'; password: string }): LocalUser {
   const users = read()
   let existing = users.find(x => x.phone === u.phone)
@@ -49,4 +53,3 @@ export function authenticateLocal(phone: string, password: string): LocalUser | 
   const hit = users.find(u => String(u.phone) === String(phone) && String(u.password || '') === String(password))
   return hit || null
 }
-

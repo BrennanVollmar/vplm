@@ -2,7 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import { liveQuery } from 'dexie'
 import { useAuth } from '../lib/auth'
 import { deleteUserLocal, listUsersLocal, upsertUserLocal } from '../features/users/local'
-import { db, deleteAddressBankEntry, saveAddressBankEntry, type AddressBankEntry, type ClientBankContact } from '../features/offline/db'
+import {
+  deleteAddressBankEntry,
+  saveAddressBankEntry,
+  createBackupSnapshot,
+  getBackupHistory,
+  clearBackupHistory,
+  type AddressBankEntry,
+  type ClientBankContact,
+  type BackupEntry,
+} from '../features/offline/db'
 import AddressAutocomplete from '../components/AddressAutocomplete'
 import { getMapboxToken, setMapboxToken } from '../lib/places'
 import type { AddressSuggestion } from '../lib/places'
@@ -30,6 +39,7 @@ export default function AdminPage() {
   const [role, setRole] = useState<'user' | 'developer'>('user')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  const [backupHistory, setBackupHistory] = useState<BackupEntry[]>([])
 
   if (!user || user.role !== 'developer') {
     return (
@@ -42,6 +52,10 @@ export default function AdminPage() {
 
   useEffect(() => {
     setList(listUsersLocal())
+  }, [])
+
+  useEffect(() => {
+    setBackupHistory(getBackupHistory())
   }, [])
 
   async function addUser(e: React.FormEvent) {
@@ -74,6 +88,35 @@ export default function AdminPage() {
     } finally {
       setList(listUsersLocal())
     }
+  }
+
+  async function handleManualBackup() {
+    const entry = await createBackupSnapshot('manual')
+    setBackupHistory([entry, ...getBackupHistory().filter((b) => b.id !== entry.id)])
+  }
+
+  function refreshBackups() {
+    setBackupHistory(getBackupHistory())
+  }
+
+  function handleClearBackups() {
+    if (!backupHistory.length) return
+    if (!confirm('Clear all stored backups on this device?')) return
+    clearBackupHistory()
+    setBackupHistory([])
+  }
+
+  function downloadBackup(entry: BackupEntry) {
+    if (typeof document === 'undefined') return
+    const blob = new Blob([JSON.stringify(entry, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `vplm-backup-${entry.createdAt.replace(/[:.]/g, '-')}.json`
+    document.body.appendChild(anchor)
+    anchor.click()
+    document.body.removeChild(anchor)
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -193,6 +236,49 @@ export default function AdminPage() {
       </section>
 
       <ClientBankManager />
+      <section className="card" style={{ display: 'grid', gap: 16 }}>
+        <h3>Local Backups</h3>
+        <p className="muted" style={{ marginTop: 4 }}>
+          Automatic snapshots of the browser database are stored on this device. Download them regularly so the team has an
+          off-device copy in case hardware is lost.
+        </p>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn" onClick={handleManualBackup}>Backup Now</button>
+          <button className="btn secondary" onClick={refreshBackups} disabled={!backupHistory.length}>Refresh List</button>
+          <button className="btn warn" onClick={handleClearBackups} disabled={!backupHistory.length}>Clear History</button>
+        </div>
+        {backupHistory.length === 0 ? (
+          <div className="muted">No backups captured yet. New edits will trigger automatic snapshots.</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="table" style={{ minWidth: 520 }}>
+              <thead>
+                <tr>
+                  <th>Created</th>
+                  <th>Reason</th>
+                  <th>Approx Size</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {backupHistory.map((entry) => {
+                  const sizeKb = Math.max(0.1, JSON.stringify(entry.data).length / 1024).toFixed(1)
+                  return (
+                    <tr key={entry.id}>
+                      <td>{new Date(entry.createdAt).toLocaleString()}</td>
+                      <td>{entry.reason}</td>
+                      <td>{sizeKb} KB</td>
+                      <td>
+                        <button className="btn secondary" onClick={() => downloadBackup(entry)}>Download</button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
       <DevSettings />
     </div>
   )

@@ -1,10 +1,13 @@
-export const API_BASE = import.meta.env.VITE_API_URL || window.location.origin
+const RAW_API = import.meta.env.VITE_API_URL ? String(import.meta.env.VITE_API_URL) : ''
+export const API_BASE = RAW_API.replace(/\/$/, '')
+export const hasRemoteApi = Boolean(API_BASE)
 
 function getToken(): string | null {
   try { return localStorage.getItem('auth_token') } catch { return null }
 }
 
 export async function apiFetch(path: string, opts: RequestInit = {}) {
+  if (!hasRemoteApi) throw new Error('Remote API is not configured')
   const headers: Record<string, string> = { 'Content-Type': 'application/json', ...(opts.headers as any) }
   const t = getToken()
   if (t) headers['Authorization'] = `Bearer ${t}`
@@ -18,4 +21,3 @@ export async function apiFetch(path: string, opts: RequestInit = {}) {
   if (ct.includes('application/json')) return res.json()
   return res.text()
 }
-

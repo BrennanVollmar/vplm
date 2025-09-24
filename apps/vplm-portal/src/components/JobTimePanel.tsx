@@ -31,7 +31,7 @@ export default function JobTimePanel({ jobId }: { jobId: string }) {
         <button className="btn secondary" onClick={clockOut}>Clock Out</button>
       </div>
       {rows.length === 0 ? <div className="muted">No time entries</div> : (
-        <table className="table">
+        <table className="table" style={{ minWidth: 480 }}>
           <thead><tr><th>#</th><th>Date</th><th>Clock In</th><th>Clock Out</th><th>Duration</th></tr></thead>
           <tbody>
             {(() => {
