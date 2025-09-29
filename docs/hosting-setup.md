@@ -2,76 +2,143 @@
 
 This guide outlines the minimum steps to run the VPLM portal on a managed cloud stack with shared data. The recommended pairing is **Vercel** (frontend hosting) + **Supabase** (database, storage, auth backbone). Alternative providers are listed at the end.
 
-## 1. Create the cloud accounts
+## 1. Account creation & prerequisites (10–15 minutes)
 
 | Provider | Purpose | Notes |
 | --- | --- | --- |
-| [Vercel](https://vercel.com/signup) | Build/deploy the Vite SPA with global edge caching. | Pro plan ($20/mo per seat) unlocks analytics & better bandwidth, but the Hobby tier is fine while testing. |
-| [Supabase](https://supabase.com/dashboard/sign-up) | Managed Postgres, REST endpoints, row-level security, file storage. | The free tier includes 500 MB DB + 1 GB storage, which is enough for pilots. |
+| [Vercel](https://vercel.com/signup) | Deploy the Vite SPA with automatic HTTPS and global edge CDN. | Hobby tier is free for evaluation; upgrade to Pro for team analytics or higher bandwidth. |
+| [Supabase](https://supabase.com/dashboard/sign-up) | Managed Postgres + REST API + storage + auth. | Free tier covers prototypes (500 MB DB, 1 GB storage). |
 
-## 2. Supabase project setup
+Before you begin, make sure you have:
 
-1. **Create a new project** and note the `Project URL` and `anon` public API key (Settings → API).
-2. **Disable Row Level Security temporarily** on the tables we create below (RLS → toggle off). Once Supabase Auth is wired up, re-enable RLS with appropriate policies. Do *not* ship to production with RLS disabled for untrusted clients.
-3. **Create the schema**: open the SQL Editor in Supabase and run the script from `scripts/supabase/schema.sql` (added in this repo). This provisions:
-   - `jobs`, `notes`, `measurements`, `photos` tables aligned with the Dexie models.
-   - Trigger columns for `created_at`/`updated_at` defaults and indexes for syncing.
-4. **Create a storage bucket** named `photos` (Storage → Create bucket) and mark it public. Vite uses this bucket for uploaded job photos during sync.
-5. (Optional, recommended) enable Point-in-Time recovery (Project Settings → Database → PITR) for production projects.
+- A GitHub account (Vercel imports directly from GitHub).
+- Node 18+ locally (for running `npm run dev` and Vite builds).
+- Basic understanding of your DNS registrar if you plan to move the custom domain to Vercel later.
 
-## 3. Configure environment variables
+## 2. Provision Supabase in detail (20–30 minutes)
 
-1. Copy `apps/vplm-portal/.env.example` to `apps/vplm-portal/.env` (or create the variables in Vercel later).
-2. Populate:
-   - `VITE_SUPABASE_URL` – your Supabase project URL (starts with `https://`...).
-   - `VITE_SUPABASE_ANON_KEY` – the anon API key from Supabase settings.
-3. Never commit `.env` files with real secrets; they are ignored via `.gitignore`.
+1. **Create the project**
+   1. Log into [Supabase](https://supabase.com/dashboard) → New project.
+   2. Select a **strong database password** (stored in your password manager). You only need the anon key in the client, but keep the DB password handy for admin access.
+   3. Choose a region close to the majority of your users (e.g., `us-east-1`).
+   4. Once the project is ready, open **Project Settings → API** and copy:
+      - `Project URL` (begins with `https://...supabase.co`).
+      - `anon` public API key (under “Project API keys”).
 
-## 4. Local smoke test
+2. **Run the schema migration**
+   1. In the left nav, click **SQL Editor** → `+ New query`.
+   2. Paste the contents of `scripts/supabase/schema.sql` from this repo. (You can open it locally and copy/paste.)
+   3. Press **Run**. Wait for the success toast—this creates the core tables (`jobs`, `notes`, `measurements`, `photos`) with indexes and triggers.
+   4. Optional sanity check: open **Table Editor**; you should see the four tables listed under the `public` schema.
 
-```bash
-npm install
-npm run dev
-```
+3. **Disable RLS temporarily**
+   - For each table (`jobs`, `notes`, `measurements`, `photos`): Table Editor → table name → **Security** tab → switch *Row Level Security* to `OFF`.
+   - This allows the SPA to make direct writes using the anon key while we are still using the built-in developer login. Once Supabase Auth replaces the local login, re-enable RLS with policies.
 
-- The dev server picks up the `.env` values and the sync badge should show Supabase connectivity.
-- Creating/editing jobs now writes to Dexie and queues a sync to Supabase (`features/offline/sync.ts`).
-- Watch network logs for `supabase.co` requests to verify the REST API calls are succeeding.
+4. **Create the photo storage bucket**
+   1. Left nav → **Storage** → `Create new bucket`.
+   2. Name: `photos` (must match `PHOTO_BUCKET` constant in code).
+   3. Visibility: `Public` (the site generates shareable URLs for crews).
+   4. After creation, open the bucket → **Policies** → ensure the default “public read” policy is active (Supabase does this automatically for public buckets).
 
-## 5. Deploy the site via Vercel
+5. **Optional safety nets**
+   - Settings → Database → **Point-in-Time Recovery** if you plan to store production data (paid tier feature).
+   - Settings → Logs → enable log retention to help debug sync issues later.
 
-1. Push your changes to GitHub; ensure the repository is clean and includes the new docs and scripts.
-2. In Vercel, “Import Project” from GitHub → select this repo.
-3. Build settings:
-   - Framework: **Vite** (auto-detected).
+## 3. Prepare local environment (10 minutes)
+
+1. Run `npm install` at the repo root if you haven’t already.
+2. Copy the environment template:
+   ```bash
+   cp apps/vplm-portal/.env.example apps/vplm-portal/.env
+   ```
+3. Open `apps/vplm-portal/.env` and set:
+   ```env
+   VITE_SUPABASE_URL=https://<your-project-ref>.supabase.co
+   VITE_SUPABASE_ANON_KEY=<copy-from-supabase>
+   ```
+4. Leave the `.env` file uncommitted; `.gitignore` already excludes it.
+
+## 4. Verify local data synchronisation (15 minutes)
+
+1. Start the dev server:
+   ```bash
+   npm run dev
+   ```
+2. Browse to `https://localhost:5173` (mkcert supplies HTTPS). The sync badge in the header should flip to “Online” once the Supabase client initialises.
+3. Create a test job, add a note, and optionally attach a photo.
+4. Watch the browser Network tab for requests to `https://<project>.supabase.co`. You should see `POST /rest/v1/jobs` or similar.
+5. In the Supabase dashboard, Table Editor → `jobs`, confirm your new record exists.
+6. Delete the sample record when you’re done (either from the UI or via the Table Editor).
+
+Troubleshooting tips:
+
+- 401 error → check the anon key.
+- CORS error → ensure you’re using the HTTPS dev server (`npm run dev` already enables it).
+- Writes not visible → confirm RLS is OFF and that the table names match (`jobs`, not `job`).
+
+## 5. Deploy the frontend on Vercel (20–25 minutes)
+
+1. **Push these repo changes** to GitHub so Vercel can import.
+2. In Vercel, click **Add New → Project** → “Continue with GitHub” → authorize if prompted.
+3. Select the `VPLM` repository.
+4. Build configuration (Vercel often detects this automatically, but confirm):
+   - Framework preset: `Vite`.
    - Root directory: `apps/vplm-portal`.
    - Build command: `npm run build`.
    - Output directory: `dist`.
-4. Environment variables (Project → Settings → Environment Variables): add the same `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` for Production (and Preview if desired).
-5. Deploy. Vercel will run the build script and serve the static assets globally.
+   - Install command: leave default (`npm install`).
+5. Under **Environment Variables**, add two entries for the Production environment:
+   - `VITE_SUPABASE_URL` → same URL as local.
+   - `VITE_SUPABASE_ANON_KEY` → same anon key.
+   *Repeat for the Preview environment if you want branch deploys to hit the shared Supabase instance.*
+6. Kick off the first deploy. Vercel clones the repo, runs the build, and hosts the static assets globally.
+7. When the deploy finishes, open the Production URL and repeat the smoke test (create a job, ensure Supabase tables update).
 
-## 6. Attach the GitHub Pages custom domain (optional)
+## 6. Map the custom domain to Vercel (optional, 30 minutes depending on DNS TTL)
 
-If you keep GitHub Pages active for the custom domain, point `www.lakemanagementservice.com` at Vercel instead:
+If you want `www.lakemanagementservice.com` to point at the new Vercel deployment:
 
-1. Update DNS A/ALIAS records to Vercel per the dashboard instructions.
-2. Remove or archive the GitHub Pages site to avoid conflicting responses.
+1. In Vercel Project Settings → **Domains** → `Add` → enter the domain.
+2. Vercel shows the exact DNS records required (typically an A record to Vercel’s Anycast IPs or a CNAME to `cname.vercel-dns.com`).
+3. Update the DNS at your registrar and wait for propagation (5 minutes to 24 hours, depending on TTL).
+4. Once verified, remove the GitHub Pages deployment to avoid conflicting responses.
 
-## 7. Future hardening checklist
+## 7. After-go-live hardening (ongoing)
 
-- **Supabase Auth**: replace the local phone/password guard with Supabase’s auth provider so RLS can be re-enabled safely.
-- **Edge functions / API**: migrate write operations into Supabase edge functions or Vercel serverless functions to keep the anon key read-only.
-- **Realtime**: subscribe to Supabase Realtime channels to broadcast job/notes updates instantly.
-- **Backups**: schedule database backups (Supabase PITR or external dumping).
-- **Monitoring**: enable Vercel analytics / Supabase logs for observability.
+To graduate from prototype to production:
+
+1. **Integrate Supabase Auth**
+   - Replace the local phone/password login with Supabase’s auth providers (email OTP, magic link, SSO, etc.).
+   - Re-enable RLS on each table and add policies, e.g.:
+     ```sql
+     create policy "jobs_owner_read" on public.jobs
+       for select using (auth.uid() = created_by);
+     create policy "jobs_owner_write" on public.jobs
+       for all using (auth.uid() = created_by);
+     ```
+   - Store the Supabase session in context so trusted-device logic maps to authenticated users.
+
+2. **Move sensitive writes server-side**
+   - Use Supabase Edge Functions or Vercel Serverless functions to validate payloads, enforce business rules, and keep the anon key read-only.
+
+3. **Enable realtime collaboration**
+   - Subscribe to Supabase Realtime channels (`supabase.channel('jobs')`) so all devices receive job updates instantly.
+
+4. **Backups & monitoring**
+   - Schedule automated exports (`pg_dump`) or enable PITR.
+   - Turn on Vercel Analytics / Supabase Performance to track slow queries.
+
+5. **CI/CD automation**
+   - Add smoke tests (Playwright, Cypress) that run on Vercel previews before promotion.
 
 ## Alternative stacks
 
 | Hosting | Database | Pros | Cons |
 | --- | --- | --- | --- |
-| Netlify + Supabase | Same schema | Similar to Vercel, cheaper edge functions. | Slightly slower cold starts; fewer analytics. |
-| Render Web Services | Render PostgreSQL | Single provider for web/API/DB, predictable pricing. | Regional hosting only; manual CDN setup. |
-| Cloudflare Pages + D1 | Cloudflare D1/KV | Ultra-low latency edge deployments. | D1 is still maturing; SQL feature gaps. |
-| AWS Amplify | RDS / DynamoDB | Enterprise integration, fine-grained IAM. | Higher complexity, pay-per-use billing. |
+| Netlify + Supabase | Same schema | Similar CI/CD experience, cheaper paid tier. | Fewer analytics, slower cold start for serverless functions. |
+| Render Web Services | Render PostgreSQL | One provider for web/API/DB, cron jobs, background workers. | Regional (no edge CDN), manual caching setup. |
+| Cloudflare Pages + D1 | Cloudflare D1/KV | Ultra-low latency edge functions, generous free tier. | D1 is beta; SQL feature gaps (no triggers yet). |
+| AWS Amplify | RDS / DynamoDB | Enterprise-grade infra, integrates with wider AWS stack. | Higher operational complexity, pay-per-resource billing. |
 
-Choose the mix that best matches budget and Ops familiarity, but the Vercel + Supabase pairing is the quickest path to a performant, collaborative deployment.
+The Vercel + Supabase pairing stays the fastest route to production-grade hosting while keeping monthly spend predictable.
