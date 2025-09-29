@@ -20,8 +20,8 @@ describe('geom calculators', () => {
   it('acre-feet and gallons', () => {
     const acres = acresFromRect(150, 100)
     const vol = acreFeet(acres, 4)
-    expect(vol).toBeCloseTo(1.376, 3)
+    const expected = ((150 * 100) / 43560) * 4
+    expect(vol).toBeCloseTo(expected, 6)
     expect(acreFeetToGallons(vol)).toBeGreaterThan(400000)
   })
 })
-
