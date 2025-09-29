@@ -1,9 +1,22 @@
--- VPLM Supabase schema bootstrap
+-- VPLM Supabase schema bootstrap (extended)
 -- Run inside the Supabase SQL editor after creating your project.
 
 create schema if not exists public;
 
--- Jobs ----------------------------------------------------------------------
+-- ---------------------------------------------------------------------------
+-- Utility function to maintain updated_at timestamps
+-- ---------------------------------------------------------------------------
+create or replace function public.touch_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = timezone('utc', now());
+  return new;
+end;
+$$ language plpgsql;
+
+-- ---------------------------------------------------------------------------
+-- Core job tables
+-- ---------------------------------------------------------------------------
 create table if not exists public.jobs (
   id uuid primary key,
   client_name text not null,
@@ -18,10 +31,11 @@ create table if not exists public.jobs (
   created_at timestamptz default timezone('utc', now()) not null,
   updated_at timestamptz default timezone('utc', now()) not null
 );
-
+create trigger if not exists jobs_touch_updated_at
+before update on public.jobs
+for each row execute procedure public.touch_updated_at();
 create index if not exists jobs_updated_at_idx on public.jobs(updated_at desc);
 
--- Notes ---------------------------------------------------------------------
 create table if not exists public.notes (
   id uuid primary key,
   job_id uuid references public.jobs(id) on delete cascade,
@@ -29,10 +43,8 @@ create table if not exists public.notes (
   tags text[],
   created_at timestamptz default timezone('utc', now()) not null
 );
-
 create index if not exists notes_job_id_idx on public.notes(job_id);
 
--- Measurements --------------------------------------------------------------
 create table if not exists public.measurements (
   id uuid primary key,
   job_id uuid references public.jobs(id) on delete cascade,
@@ -41,10 +53,8 @@ create table if not exists public.measurements (
   value double precision not null,
   created_at timestamptz default timezone('utc', now()) not null
 );
-
 create index if not exists measurements_job_id_idx on public.measurements(job_id);
 
--- Photos (metadata only) ----------------------------------------------------
 create table if not exists public.photos (
   id uuid primary key,
   job_id uuid references public.jobs(id) on delete cascade,
@@ -53,29 +63,178 @@ create table if not exists public.photos (
   created_at timestamptz default timezone('utc', now()) not null,
   exif jsonb default '{}'::jsonb
 );
-
 create index if not exists photos_job_id_idx on public.photos(job_id);
 
--- Updated-at trigger to keep timestamps fresh on UPSERT ---------------------
-create or replace function public.touch_updated_at()
-returns trigger as $$
-begin
-  new.updated_at = timezone('utc', now());
-  return new;
-end;
-$$ language plpgsql;
+create table if not exists public.calc_results (
+  id uuid primary key,
+  job_id uuid references public.jobs(id) on delete cascade,
+  type text not null,
+  inputs jsonb not null default '{}'::jsonb,
+  outputs jsonb not null default '{}'::jsonb,
+  created_at timestamptz default timezone('utc', now()) not null
+);
 
-drop trigger if exists jobs_touch_updated_at on public.jobs;
-create trigger jobs_touch_updated_at
-before update on public.jobs
-for each row
-execute procedure public.touch_updated_at();
+create table if not exists public.chem_products (
+  id uuid primary key,
+  brand text not null,
+  active text,
+  form text,
+  strength text,
+  label_notes text,
+  dose_rules jsonb not null default '[]'::jsonb
+);
 
--- Optional: disable row level security for initial integration (enable once auth is in place)
-alter table public.jobs disable row level security;
-alter table public.notes disable row level security;
-alter table public.measurements disable row level security;
-alter table public.photos disable row level security;
+create table if not exists public.chem_labels (
+  id uuid primary key,
+  product_id uuid references public.chem_products(id) on delete cascade,
+  filename text not null,
+  mime_type text,
+  size integer,
+  created_at timestamptz default timezone('utc', now()) not null
+);
 
--- Seed bucket policy reminder ------------------------------------------------
--- After running this script, create a Storage bucket named "photos" and mark it public.
+-- ---------------------------------------------------------------------------
+-- Field data (tracks, water quality, checklists, misc)
+-- ---------------------------------------------------------------------------
+create table if not exists public.tracks (
+  id uuid primary key,
+  job_id uuid references public.jobs(id) on delete cascade,
+  points jsonb not null default '[]'::jsonb,
+  created_at timestamptz default timezone('utc', now()) not null
+);
+
+create table if not exists public.water_quality (
+  id uuid primary key,
+  job_id uuid references public.jobs(id) on delete cascade,
+  kind text not null,
+  value double precision not null,
+  unit text not null,
+  depth_ft double precision,
+  created_at timestamptz default timezone('utc', now()) not null
+);
+create index if not exists water_quality_job_id_idx on public.water_quality(job_id);
+
+create table if not exists public.checklists (
+  id uuid primary key,
+  job_id uuid references public.jobs(id) on delete cascade,
+  kind text not null,
+  items jsonb not null default '[]'::jsonb,
+  notes text,
+  created_at timestamptz default timezone('utc', now()) not null
+);
+
+create table if not exists public.misc_points (
+  id uuid primary key,
+  job_id uuid references public.jobs(id) on delete cascade,
+  lat double precision not null,
+  lon double precision not null,
+  name text not null,
+  note text,
+  created_at timestamptz default timezone('utc', now()) not null
+);
+create index if not exists misc_points_job_id_idx on public.misc_points(job_id);
+
+create table if not exists public.depth_points (
+  id uuid primary key,
+  job_id uuid references public.jobs(id) on delete cascade,
+  lat double precision not null,
+  lon double precision not null,
+  depth_ft double precision not null,
+  note text,
+  pond_id uuid,
+  created_at timestamptz default timezone('utc', now()) not null
+);
+create index if not exists depth_points_job_id_idx on public.depth_points(job_id);
+
+create table if not exists public.ponds (
+  id uuid primary key,
+  job_id uuid references public.jobs(id) on delete cascade,
+  name text,
+  polygon jsonb not null default '[]'::jsonb,
+  color text,
+  created_at timestamptz default timezone('utc', now()) not null
+);
+create index if not exists ponds_job_id_idx on public.ponds(job_id);
+
+-- ---------------------------------------------------------------------------
+-- Audio notes (metadata + storage reference)
+-- ---------------------------------------------------------------------------
+create table if not exists public.audio_notes (
+  id uuid primary key,
+  job_id uuid references public.jobs(id) on delete cascade,
+  storage_path text,
+  duration_sec double precision,
+  transcript text,
+  mime_type text,
+  lang text,
+  stop_id uuid,
+  promoted_note_id uuid,
+  created_at timestamptz default timezone('utc', now()) not null
+);
+create index if not exists audio_notes_job_id_idx on public.audio_notes(job_id);
+
+-- ---------------------------------------------------------------------------
+-- Scheduling & time tracking
+-- ---------------------------------------------------------------------------
+create table if not exists public.time_entries (
+  id uuid primary key,
+  job_id uuid references public.jobs(id) on delete cascade,
+  date date not null,
+  arrival_at timestamptz not null,
+  departure_at timestamptz
+);
+create index if not exists time_entries_job_id_idx on public.time_entries(job_id);
+
+create table if not exists public.tasks (
+  id uuid primary key,
+  job_id uuid references public.jobs(id) on delete cascade,
+  label text not null,
+  done boolean not null default false,
+  created_at timestamptz default timezone('utc', now()) not null
+);
+create index if not exists tasks_job_id_idx on public.tasks(job_id);
+
+-- ---------------------------------------------------------------------------
+-- Fish runs & fisheries data
+-- ---------------------------------------------------------------------------
+create table if not exists public.fish_runs (
+  id uuid primary key,
+  title text,
+  notes text,
+  planned_at timestamptz,
+  created_at timestamptz default timezone('utc', now()) not null
+);
+
+create table if not exists public.fish_stops (
+  id uuid primary key,
+  run_id uuid references public.fish_runs(id) on delete cascade,
+  seq integer not null,
+  client text,
+  site text,
+  address text,
+  lat double precision,
+  lon double precision,
+  species text,
+  count integer,
+  weight_lb double precision,
+  tank_temp_f double precision,
+  pond_temp_f double precision,
+  note text,
+  created_at timestamptz default timezone('utc', now()) not null
+);
+create index if not exists fish_stops_run_id_idx on public.fish_stops(run_id);
+
+create table if not exists public.fish_sessions (
+  id uuid primary key,
+  job_id uuid references public.jobs(id) on delete set null,
+  started_at timestamptz not null,
+  ended_at timestamptz
+);
+
+create table if not exists public.fish_counts (
+  id uuid primary key,
+  session_id uuid references public.fish_sessions(id) on delete cascade,
+  species text not null,
+  count integer not null default 0
+);
+create index if not exis
