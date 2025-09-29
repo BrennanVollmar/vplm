@@ -1,10 +1,10 @@
--- VPLM Supabase schema bootstrap (extended)
--- Run inside the Supabase SQL editor after creating your project.
+-- VPLM Supabase schema bootstrap (full dataset)
+-- Paste this into Supabase SQL Editor after creating your project.
 
 create schema if not exists public;
 
 -- ---------------------------------------------------------------------------
--- Utility function to maintain updated_at timestamps
+-- Utility: keep updated_at fresh on updates
 -- ---------------------------------------------------------------------------
 create or replace function public.touch_updated_at()
 returns trigger as $$
@@ -15,7 +15,7 @@ end;
 $$ language plpgsql;
 
 -- ---------------------------------------------------------------------------
--- Core job tables
+-- Core job data
 -- ---------------------------------------------------------------------------
 create table if not exists public.jobs (
   id uuid primary key,
@@ -31,7 +31,8 @@ create table if not exists public.jobs (
   created_at timestamptz default timezone('utc', now()) not null,
   updated_at timestamptz default timezone('utc', now()) not null
 );
-create trigger if not exists jobs_touch_updated_at
+drop trigger if exists jobs_touch_updated_at on public.jobs;
+create trigger jobs_touch_updated_at
 before update on public.jobs
 for each row execute procedure public.touch_updated_at();
 create index if not exists jobs_updated_at_idx on public.jobs(updated_at desc);
@@ -68,7 +69,7 @@ create index if not exists photos_job_id_idx on public.photos(job_id);
 create table if not exists public.calc_results (
   id uuid primary key,
   job_id uuid references public.jobs(id) on delete cascade,
-  type text not null,
+  result_type text not null,
   inputs jsonb not null default '{}'::jsonb,
   outputs jsonb not null default '{}'::jsonb,
   created_at timestamptz default timezone('utc', now()) not null
@@ -94,7 +95,7 @@ create table if not exists public.chem_labels (
 );
 
 -- ---------------------------------------------------------------------------
--- Field data (tracks, water quality, checklists, misc)
+-- Field data (tracks, water, checklists, misc points)
 -- ---------------------------------------------------------------------------
 create table if not exists public.tracks (
   id uuid primary key,
@@ -157,7 +158,7 @@ create table if not exists public.ponds (
 create index if not exists ponds_job_id_idx on public.ponds(job_id);
 
 -- ---------------------------------------------------------------------------
--- Audio notes (metadata + storage reference)
+-- Audio notes (metadata) – store actual audio in storage bucket
 -- ---------------------------------------------------------------------------
 create table if not exists public.audio_notes (
   id uuid primary key,
@@ -174,12 +175,12 @@ create table if not exists public.audio_notes (
 create index if not exists audio_notes_job_id_idx on public.audio_notes(job_id);
 
 -- ---------------------------------------------------------------------------
--- Scheduling & time tracking
+-- Scheduling & tasks
 -- ---------------------------------------------------------------------------
 create table if not exists public.time_entries (
   id uuid primary key,
   job_id uuid references public.jobs(id) on delete cascade,
-  date date not null,
+  work_date date not null,
   arrival_at timestamptz not null,
   departure_at timestamptz
 );
@@ -195,7 +196,7 @@ create table if not exists public.tasks (
 create index if not exists tasks_job_id_idx on public.tasks(job_id);
 
 -- ---------------------------------------------------------------------------
--- Fish runs & fisheries data
+-- Fish runs / fisheries
 -- ---------------------------------------------------------------------------
 create table if not exists public.fish_runs (
   id uuid primary key,
@@ -235,6 +236,4 @@ create table if not exists public.fish_counts (
   id uuid primary key,
   session_id uuid references public.fish_sessions(id) on delete cascade,
   species text not null,
-  count integer not null default 0
-);
-create index if not exis
+  co
